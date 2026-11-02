@@ -50,7 +50,7 @@ Verified behavior:
 
 ## Required environment variables
 
-`DEPLOYMENT_MODE=single-instance`, `APP_ORIGIN`, `SCANNER_URL`, `SCANNER_TOKEN` (≥32 chars), `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, optional `DEEPSEEK_SUPPORTS_VISION=true`, optional `TRUST_PROXY=false`.
+`DEPLOYMENT_MODE=single-instance` (or `serverless`), `APP_ORIGIN`, `SCANNER_URL`, `SCANNER_TOKEN` (≥32 chars), `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, optional `DEEPSEEK_SUPPORTS_VISION=true`, optional `TRUST_PROXY=false`.
 
 ## Deployment
 

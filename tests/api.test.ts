@@ -17,6 +17,7 @@ function request(body: unknown, headers: Record<string, string> = {}) {
 const input = { url: 'https://fixture.example.com/', language: 'en', intensity: 'No Mercy' }
 
 beforeEach(() => {
+  vi.unstubAllEnvs()
   vi.resetModules()
   delete (globalThis as typeof globalThis & { vibeRoastState?: unknown }).vibeRoastState
   vi.stubEnv('NODE_ENV', 'test')
@@ -141,5 +142,16 @@ describe('private report retention and prompts', () => {
     expect(prompt).toContain('img#product')
     expect(prompt).not.toContain('No meta[name=')
     expect((await POST(request({ ...options, selectedIds: ['invented'] }))).status).toBe(400)
+  })
+  it('rejects report retrieval and prompt generation with 501 in serverless mode', async () => {
+    vi.stubEnv('DEPLOYMENT_MODE', 'serverless')
+    const { GET } = await import('../app/api/roast/[id]/route')
+    const { POST } = await import('../app/api/prompts/generate/route')
+    const resGet = await GET(new Request('http://localhost'), { params: Promise.resolve({ id: '00000000-0000-0000-0000-000000000000' }) })
+    expect(resGet.status).toBe(501)
+    expect((await resGet.json()).code).toBe('REPORT_STORE_UNAVAILABLE')
+    const resPost = await POST(request({ reportId: '00000000-0000-0000-0000-000000000000', selectedIds: ['image-alt'], preset: 'Codex', language: 'en', detail: 'detailed' }))
+    expect(resPost.status).toBe(501)
+    expect((await resPost.json()).code).toBe('REPORT_STORE_UNAVAILABLE')
   })
 })

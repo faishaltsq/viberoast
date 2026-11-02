@@ -77,7 +77,7 @@ pnpm build
 pnpm start
 ```
 
-Run **one long-lived web process** behind trusted HTTPS ingress. Do not use this process-local store/rate limiter across serverless functions or multiple replicas. Production scans fail closed unless `DEPLOYMENT_MODE=single-instance` is explicitly configured. Before horizontal scaling, replace report storage and admission/rate counters with a shared durable implementation; do not merely turn on replicas.
+Run **one long-lived web process** behind trusted HTTPS ingress. Do not use this process-local store/rate limiter across multiple replicas. Production scans fail closed unless `DEPLOYMENT_MODE=single-instance` (or explicit `serverless`) is configured. Serverless mode routes prompts and reports in-browser and rejects server-side retrieval with 501. Before horizontal scaling, replace report storage and admission/rate counters with a shared durable implementation; do not merely turn on replicas.
 
 Ingress requirements: body limit 8 KiB for mutation routes, request-header/body timeouts, upstream timeout sufficient for the bounded scan and AI request, and external abuse/connection limits. When `TRUST_PROXY=true`, the application must not be directly internet-accessible and ingress must overwrite `x-real-ip` instead of forwarding caller values. Without trusted IP configuration, all callers deliberately share the conservative anonymous limit.
 

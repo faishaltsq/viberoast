@@ -1,0 +1,16 @@
+# Never upload local secrets or deploy-only artifacts to Vercel.
+.env
+.env.*
+!.env.example
+.vercel
+node_modules
+.next
+test-results
+playwright-report
+coverage
+worker
+compose.yaml
+e2e
+tests
+scripts
+*.tsbuildinfo
