@@ -61,6 +61,17 @@ Verified behavior:
 - Navigation timing is not Core Web Vitals.
 - Comedy heat is issue density, not a quality/security/performance score.
 
+## Optional GitHub analysis decision
+
+Not implemented in this increment, and the UI does not pretend it exists: the control is disabled and labeled "Coming soon".
+
+Why it stays a separate milestone:
+- The user brief explicitly defines website URL roasting as the MVP; repository analysis is the optional milestone.
+- A trustworthy repository review needs different boundaries from a public-page scan: explicit token scope, rate limits, branch/commit pinning, secret/PII handling, and no execution of repository content.
+- The current agent prompt is deliberately website-only and cannot invent source paths. Claiming repository context without an authenticated clone would violate the evidence-first product rule.
+
+Safe next shape: read-only public GitHub API metadata and selected file contents at a pinned commit, bounded size/rate, never execute code or install dependencies, and label every finding with its repository evidence. This is intentionally not started here.
+
 ## Next priorities
 
 1. Configure provider credentials and run a live scan smoke; record model/vision capability output.
