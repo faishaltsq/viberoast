@@ -11,9 +11,22 @@ const globalState = globalThis as typeof globalThis & { vibeRoastState?: State }
 const state: State = globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
 
 export function assertDeployment(): void {
-  if (process.env.NODE_ENV === 'production' && (process.env.DEPLOYMENT_MODE !== 'single-instance' || !process.env.APP_ORIGIN)) {
-    throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', 'Scanning requires the configured single-instance deployment and isolated worker.')
+  if (process.env.NODE_ENV !== 'production') return
+  const mode = process.env.DEPLOYMENT_MODE
+  if (!mode || !process.env.APP_ORIGIN || !process.env.SCANNER_URL) {
+    throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', 'Scanning requires a configured scanner and canonical app origin.')
   }
+  if (mode !== 'single-instance' && mode !== 'serverless') {
+    throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', 'DEPLOYMENT_MODE must be single-instance or serverless.')
+  }
+}
+
+/**
+ * Serverless mode keeps only per-instance counters. Global backpressure is the
+ * worker's single-flight admission, so concurrent scans still fail closed.
+ */
+export function isServerless(): boolean {
+  return process.env.DEPLOYMENT_MODE === 'serverless'
 }
 
 export function acquireScan(request: Request, now = Date.now()): () => void {

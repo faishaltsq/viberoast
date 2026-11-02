@@ -95,6 +95,27 @@ describe('roast API', () => {
     expect((await api.POST(request(input))).status).toBe(503)
     expect(api.scan).not.toHaveBeenCalled()
   })
+  it('rejects an unknown deployment mode', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('DEPLOYMENT_MODE', 'multi-replica')
+    vi.stubEnv('APP_ORIGIN', 'https://viberoast.example.com')
+    vi.stubEnv('SCANNER_URL', 'https://scanner.example.com')
+    const api = await modules()
+    expect((await api.POST(request(input))).status).toBe(503)
+    expect(api.scan).not.toHaveBeenCalled()
+  })
+  it('permits explicit serverless mode and still sanitizes worker failures', async () => {
+    vi.stubEnv('NODE_ENV', 'production')
+    vi.stubEnv('DEPLOYMENT_MODE', 'serverless')
+    vi.stubEnv('APP_ORIGIN', 'http://localhost')
+    vi.stubEnv('SCANNER_URL', 'https://scanner.example.com')
+    const api = await modules()
+    const { ScannerError } = await import('../lib/scanner/client')
+    api.scan.mockRejectedValue(new ScannerError())
+    const response = await api.POST(request(input))
+    expect(response.status).toBe(503)
+    expect((await response.json()).code).toBe('SCANNER_UNAVAILABLE')
+  })
 })
 
 describe('private report retention and prompts', () => {
