@@ -4,8 +4,16 @@ Branch `feat/evidence-backed-mvp`, baseline `0fa0a499f10c433373429d2b39cbc872905
 
 ## Implemented and verified
 
+Live end-to-end verification completed after provider credentials were supplied locally (never committed):
+
 | Check | Result |
 | --- | --- |
+| `pnpm provider:verify` | configured `deepseek-flash` found; image input confirmed by provider catalog |
+| Live `POST /api/roast` (EN, No Mercy) | 200 in 9.6 s; `aiStatus: completed`; `visualAnalysis: true`; real scan of `https://example.com/` |
+| Live `POST /api/roast` (ID, Career Ending) | 200 in 8.1 s; natural Indonesian verdict and roast |
+| Live `POST /api/prompts/generate` | 200; selected-ID-only prompt; unselected finding absent |
+| Live UI scan | real screenshot (1280px), verdict, nickname, comedy score 4, 2 findings, limitations shown |
+| Rate limit | 4th anonymous scan in 10 min returns 429 `RATE_LIMITED` |
 | `pnpm test` (Vitest) | 127 passed, 7 files |
 | `pnpm typecheck` | exit 0 |
 | `pnpm lint` | exit 0, no warnings |
@@ -29,8 +37,7 @@ Verified behavior:
 
 ## Implemented but unverified in this environment
 
-- Live DeepSeek commentary and vision. No `DEEPSEEK_API_KEY`/model is configured; `pnpm provider:verify` correctly fails with a configuration error. Adapter behavior is covered by mocked-boundary tests only.
-- Full end-to-end live path (real site → provider → report) cannot be exercised without those credentials.
+- No remaining provider gap on this host: live text + vision commentary was verified with a locally supplied key. Production still needs its own credential and one post-deploy smoke.
 - Horizontal scaling is deliberately unsupported; process-local retention/rate limiting is documented and must be replaced before replicas.
 
 ## Not implemented
