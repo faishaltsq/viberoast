@@ -163,3 +163,16 @@ The specialist reviewer route produced no review output, so the two independent 
 ## Working-tree boundary
 
 Verification ran against the preserved working tree, including the scanner/readiness/privacy changes that were already present at the start. Those unrelated scanner/worker, README/verification and existing test changes remain uncommitted; the untouched pre-existing ticker test also remains untracked. The shared page/CSS commit carries the pre-existing ticker UI forward because those files were part of the polish. A clean checkout of only the final polish SHA does not include the separate pre-existing backend changes. Review and commit those separately before attempting a reproducible release.
+
+## Follow-up: local ORIGIN_DENIED correction
+
+The local `.env.local` pins `APP_ORIGIN` to `http://127.0.0.1:3102`, while the standard development server uses port 3000. The mutation guard was applying that stale canonical URL in development, rejecting legitimate local submissions before URL validation.
+
+Development now checks the actual request origin (host, scheme and port). Production still honors the configured `APP_ORIGIN`; `Sec-Fetch-Site: cross-site` remains rejected. No environment file, secret, CORS policy or production origin allowlist was changed.
+
+- Focused HTTP/API tests: 18 passed; full unit/integration suite: 138 passed.
+- TypeScript, lint and production build: exited 0.
+- Actual development browser submission on port 3000 reached private-URL validation instead of origin denial; input was retained. A same-origin empty request returned `400 INVALID_REQUEST`.
+- Actual development HTTP probes rejected an attacker origin, the stale port-3102 origin and a cross-site marker with `403 ORIGIN_DENIED`.
+- Built production server on its configured port 3102 accepted the canonical origin through to `400 INVALID_REQUEST`, but rejected port 3000 and an attacker origin with `403 ORIGIN_DENIED`.
+- No scanner or paid AI call was needed for these boundary checks. No deployment performed.

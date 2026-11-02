@@ -10,6 +10,18 @@ describe('same-origin mutation boundary', () => {
     expect(assertSameOrigin(request)).toBeUndefined()
     expect(() => assertSameOrigin(new Request(request.url, { headers: { host: '127.0.0.1:3000', origin: 'https://attacker.example' } }))).toThrow(/VibeRoast/)
   })
+  it('uses the development request origin even when a previous local port is configured', () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    vi.stubEnv('APP_ORIGIN', 'http://127.0.0.1:3102')
+    for (const host of ['127.0.0.1:3000', 'localhost:3000']) {
+      const request = new Request('http://localhost:3000/api/roast', { headers: { host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin' } })
+      expect(assertSameOrigin(request)).toBeUndefined()
+      for (const origin of ['https://attacker.example', 'http://127.0.0.1:3102']) {
+        expect(() => assertSameOrigin(new Request(request.url, { headers: { host, origin, 'sec-fetch-site': 'same-origin' } }))).toThrow(/VibeRoast/)
+      }
+      expect(() => assertSameOrigin(new Request(request.url, { headers: { host, origin: `http://${host}`, 'sec-fetch-site': 'cross-site' } }))).toThrow(/Cross-site/)
+    }
+  })
   it('pins production origin to configuration rather than trusting a supplied host', () => {
     vi.stubEnv('NODE_ENV', 'production')
     vi.stubEnv('APP_ORIGIN', 'https://viberoast.example.com')
