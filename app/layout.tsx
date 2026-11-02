@@ -5,7 +5,6 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'VibeRoast — Your AI built it. Our AI judges it.',
   description: 'An opinionated AI design audit for questionable websites. Get roasted, get a roadmap, get redeemed.',
-  generator: 'v0.app',
   icons: {
     icon: [
       {
@@ -26,11 +25,8 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  colorScheme: 'light dark',
-  themeColor: [
-    { media: '(prefers-color-scheme: light)', color: 'white' },
-    { media: '(prefers-color-scheme: dark)', color: 'black' },
-  ],
+  colorScheme: 'light',
+  themeColor: '#f5f1e8',
 }
 
 export default function RootLayout({

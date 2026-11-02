@@ -1,0 +1,87 @@
+services:
+  scanner:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile
+    init: true
+    restart: unless-stopped
+    depends_on:
+      egress-proxy:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${SCANNER_PORT:-8787}:8080"
+    environment:
+      SCANNER_ISOLATION: firewall-proxy-v1
+      SCANNER_TOKEN: ${SCANNER_TOKEN:?Set an independent random scanner token of at least 32 characters}
+      EGRESS_PROXY_IP: 172.30.44.2
+    healthcheck:
+      test: ["CMD", "node", "-e", "const fs=require('node:fs');if(!fs.readFileSync('/proc/net/tcp','utf8').split('\\n').some(l=>l.includes(':1F90')&&l.trim().split(/\\s+/)[3]==='0A'))process.exit(1)"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+    networks:
+      scanner-internal:
+        ipv4_address: 172.30.44.3
+      scanner-control: {}
+    cap_drop: [ALL]
+    cap_add: [NET_ADMIN, SETUID, SETGID, SETPCAP]
+    security_opt:
+      - no-new-privileges:true
+      - seccomp=./worker/seccomp.json
+    sysctls:
+      net.ipv6.conf.all.disable_ipv6: "1"
+      net.ipv6.conf.default.disable_ipv6: "1"
+    read_only: true
+    tmpfs:
+      - /tmp:size=512m,mode=1777
+      - /run:size=1m,mode=0755
+    shm_size: 256m
+    mem_limit: 1536m
+    cpus: 2
+    pids_limit: 256
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 1024
+    stop_grace_period: 5s
+  egress-proxy:
+    build:
+      context: .
+      dockerfile: worker/Dockerfile.proxy
+    init: true
+    restart: unless-stopped
+    environment:
+      WORKER_IP: 172.30.44.3
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('node:http').get('http://127.0.0.1:3128',r=>process.exit(r.statusCode===403?0:1)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+    networks:
+      scanner-internal:
+        ipv4_address: 172.30.44.2
+      proxy-public: {}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 64
+    ulimits:
+      nofile:
+        soft: 256
+        hard: 256
+networks:
+  scanner-internal:
+    internal: true
+    enable_ipv6: false
+    ipam:
+      config:
+        - subnet: 172.30.44.0/28
+  proxy-public:
+    enable_ipv6: false
+  scanner-control:
+    enable_ipv6: false

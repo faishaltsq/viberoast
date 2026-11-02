@@ -1,121 +1,104 @@
 'use client'
 
-import { useMemo, useState } from 'react'
-import {
-  ArrowDownRight,
-  ArrowRight,
-  Check,
-  ChevronDown,
-  CircleDot,
-  Copy,
-  GitBranch,
-  Heart,
-  Link2,
-  Menu,
-  Play,
-  RotateCcw,
-  Search,
-  Share2,
-  Sparkles,
-  Terminal,
-  X,
-  Zap,
-} from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowDownRight, ArrowRight, Check, ChevronDown, CircleDot, GitBranch, Menu, RotateCcw, Search, Terminal, X, Zap } from 'lucide-react'
+import type { Intensity, Language, RoastReport } from '@/lib/types/report'
+import { reportSchema } from '@/lib/types/report'
+import { calculateScore } from '@/lib/roast/score'
+import { Mascot } from '@/components/bro-code/mascot'
+import { Results } from '@/components/roast/results'
+import { Fixes } from '@/components/fixes/fixes'
+import { examples, Hall } from '@/components/roast/hall'
+import { Dialog, SectionLabel } from '@/components/shared/primitives'
 
-const findings = [
-  { title: 'Your CTA is more mysterious than a startup roadmap.', issue: 'Primary action lacks contrast and clear hierarchy in the hero section.', evidence: 'The coral button competes with three secondary links above the fold.', severity: 'HIGH', fix: 'Use one dominant CTA, increase contrast, and move the supporting action below it.', expression: 'shocked' },
-  { title: 'Seven animations. Zero sense of direction.', issue: 'Seven animated elements draw attention away from the product value proposition.', evidence: 'Hero animation density is high while the next action remains unclear.', severity: 'MED', fix: 'Keep one purposeful motion cue and reduce decorative transitions.', expression: 'dizzy' },
-  { title: 'Your mobile layout is fighting for its life.', issue: 'The hero grid collapses too late for narrow screens.', evidence: 'The preview shows a 2-column layout below 768px.', severity: 'HIGH', fix: 'Stack the preview and form at 900px, preserving comfortable tap targets.', expression: 'disappointed' },
-]
-
-const leaderboard = [
-  { name: 'TaskToast', verdict: 'Bro, your empty state has more personality than the app.', score: 91, emoji: '01', color: 'green' },
-  { name: 'CryptoBros.app', verdict: 'The gradients called. They want their 2021 back.', score: 38, emoji: '02', color: 'red' },
-  { name: 'SaaSStarter', verdict: 'It is giving template, but at least the template is centered.', score: 64, emoji: '03', color: 'yellow' },
-]
-
-function Logo() {
-  return <a href="#top" className="logo" aria-label="VibeRoast home"><span className="logo-flame">✦</span> Vibe<span>Roast</span></a>
-}
-
-function SectionLabel({ children }: { children: React.ReactNode }) {
-  return <div className="section-label"><span className="dot" /> {children}</div>
-}
-
-function Mascot({ small = false }: { small?: boolean }) {
-  return <div className={`mascot-wrap ${small ? 'mascot-small' : ''}`}><img src="/bro-code.png" alt="Bro Code, the skeptical CRT code reviewer" /></div>
-}
+type View = 'home' | 'results' | 'fixes' | 'hall'
 
 export default function Page() {
+  const [language, setLanguage] = useState<Language>('en')
   const [url, setUrl] = useState('')
   const [repoOpen, setRepoOpen] = useState(false)
-  const [intensity, setIntensity] = useState('No Mercy')
-  const [view, setView] = useState<'home' | 'results' | 'fixes' | 'hall'>('home')
-  const [expanded, setExpanded] = useState<number | null>(0)
-  const [copied, setCopied] = useState(false)
+  const [intensity, setIntensity] = useState<Intensity>('No Mercy')
+  const [view, setView] = useState<View>('home')
+  const [section, setSection] = useState('top')
   const [mobileMenu, setMobileMenu] = useState(false)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [error, setError] = useState('')
-  const [selectedFindings, setSelectedFindings] = useState<number[]>(findings.map((_, index) => index))
+  const [report, setReport] = useState<RoastReport | null>(null)
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [scannedTarget, setScannedTarget] = useState('')
+  const [improved, setImproved] = useState(false)
+  const [dialog, setDialog] = useState<'manifesto' | 'example' | null>(null)
+  const controller = useRef<AbortController | null>(null)
+  const id = language === 'id'
+  const t = (en: string, indo: string) => id ? indo : en
 
-  const runRoast = () => {
-    if (!url.trim()) { setError('Paste a website URL first. Bro Code needs evidence.'); return }
-    try { new URL(url.startsWith('http') ? url : `https://${url}`) } catch { setError('That URL looks questionable. Try including a valid domain.'); return }
-    setError(''); setIsAnalyzing(true)
-    window.setTimeout(() => { setIsAnalyzing(false); setView('results'); window.scrollTo({ top: 0, behavior: 'smooth' }) }, 900)
+  useEffect(() => { document.documentElement.lang = language }, [language])
+  useEffect(() => { if (view !== 'home') document.getElementById('main-content')?.focus({ preventScroll: true }) }, [view])
+  useEffect(() => () => controller.current?.abort(), [])
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const target = document.getElementById(view === 'home' ? section : 'top')
+      target?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [view, section])
+
+  const navigate = (next: View, target = 'top') => {
+    setView(next); setSection(target); setMobileMenu(false)
+    if (view === next) document.getElementById(next === 'home' ? target : 'top')?.scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' })
   }
-  const copyPrompt = async () => { setCopied(true); await navigator.clipboard?.writeText('Improve the VibeRoast findings: clarify the primary CTA, reduce competing motion, and stack the hero layout for mobile.'); setTimeout(() => setCopied(false), 1800) }
+  const runRoast = async (target = url) => {
+    if (controller.current) return
+    if (!target.trim()) { setError(t('Paste a website URL first. Bro Code needs evidence.', 'Tempel URL website dulu. Bro Code butuh bukti.')); return }
+    let normalized: URL
+    try {
+      normalized = new URL(/^[a-z][a-z\d+.-]*:/i.test(target.trim()) ? target.trim() : `https://${target.trim()}`)
+      if (!['http:', 'https:'].includes(normalized.protocol) || !normalized.hostname || normalized.username || normalized.password) throw new Error('Invalid URL')
+    } catch { setError(t('Enter a valid public HTTP or HTTPS website URL without credentials.', 'Masukkan URL website publik HTTP atau HTTPS yang valid, tanpa kredensial.')); return }
+    setUrl(normalized.href); setError(''); setIsAnalyzing(true)
+    const abort = new AbortController()
+    controller.current = abort
+    const timeout = window.setTimeout(() => abort.abort(), 130_000)
+    try {
+      const response = await fetch('/api/roast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: normalized.href, language, intensity }), signal: abort.signal })
+      const payload = await response.json()
+      if (!response.ok) throw new Error(typeof payload.error === 'string' ? `${id ? 'Pemindaian gagal. Detail layanan: ' : ''}${payload.error}${typeof payload.code === 'string' ? ` (${payload.code})` : ''}` : t('The scan failed. Please try again.', 'Pemindaian gagal. Silakan coba lagi.'))
+      const parsed = reportSchema.safeParse(payload)
+      if (!parsed.success) throw new Error(t('The server returned an invalid report. No scan result has been substituted.', 'Server mengembalikan laporan yang tidak valid. Tidak ada hasil pemindaian pengganti.'))
+      const next = parsed.data
+      setImproved(Boolean(report && scannedTarget === normalized.href && report.scan.status === 'completed' && next.scan.status === 'completed' && calculateScore(next.scan.findings) < calculateScore(report.scan.findings)))
+      setScannedTarget(normalized.href)
+      setReport(next); setSelectedIds(next.scan.findings.map(finding => finding.id)); navigate('results')
+    } catch (failure) {
+      setError(abort.signal.aborted ? t('The request reached its time limit. No result was invented. Try the URL again.', 'Permintaan melewati batas waktu. Tidak ada hasil yang dibuat-buat. Coba URL ini lagi.') : failure instanceof TypeError ? t('Could not reach the scan service. Check your connection and try again.', 'Layanan pemindaian tidak dapat dihubungi. Periksa koneksi dan coba lagi.') : failure instanceof Error ? failure.message : t('Could not reach the scan service. Please try again.', 'Layanan pemindaian tidak dapat dihubungi. Silakan coba lagi.'))
+    } finally { clearTimeout(timeout); controller.current = null; setIsAnalyzing(false) }
+  }
 
+  const logo = <a href="#top" className="logo" onClick={event => { event.preventDefault(); navigate('home') }} aria-label={t('VibeRoast home', 'Beranda VibeRoast')}><span className="logo-flame" aria-hidden="true">✦</span> Vibe<span>Roast</span></a>
   return <main id="top" className="site-shell">
-    <header className="nav container">
-      <Logo />
-      <nav className={mobileMenu ? 'nav-links open' : 'nav-links'}>
-        <a href="#roast" onClick={() => setMobileMenu(false)}>Roast</a>
-        <a href="#hall" onClick={() => { setView('hall'); setMobileMenu(false) }}>Hall of Shame</a>
-        <a href="#how">How it works</a>
-        <a href="https://github.com" target="_blank" rel="noreferrer"><GitBranch /> GitHub</a>
-      </nav>
-      <div className="nav-actions"><button className="lang">EN</button><button className="menu-btn" onClick={() => setMobileMenu(!mobileMenu)} aria-label="Toggle menu">{mobileMenu ? <X /> : <Menu />}</button></div>
-    </header>
-
+    <a className="skip-link" href="#main-content">{t('Skip to content', 'Langsung ke konten')}</a>
+    <header className="nav container">{logo}<nav id="main-nav" className={mobileMenu ? 'nav-links open' : 'nav-links'} aria-label={t('Main navigation', 'Navigasi utama')}><a href="#roast" onClick={event => { event.preventDefault(); navigate('home', 'roast') }}>Roast</a><a href="#hall" onClick={event => { event.preventDefault(); navigate('hall') }}>Hall of Shame</a><a href="#how" onClick={event => { event.preventDefault(); navigate('home', 'how') }}>{t('How it works', 'Cara kerja')}</a><button className="nav-unavailable" disabled><GitBranch /> GitHub · {t('Coming soon', 'Segera hadir')}</button></nav><div className="nav-actions"><button className="lang" aria-label={t('Switch to Bahasa Indonesia', 'Ganti ke English')} onClick={() => setLanguage(id ? 'en' : 'id')}>{id ? 'ID' : 'EN'} <span aria-hidden="true">/ {id ? 'EN' : 'ID'}</span></button><button className="menu-btn" onClick={() => setMobileMenu(!mobileMenu)} aria-expanded={mobileMenu} aria-controls="main-nav" aria-label={t('Toggle menu', 'Buka atau tutup menu')}>{mobileMenu ? <X /> : <Menu />}<span>Menu</span></button></div></header>
+    <div id="main-content" tabIndex={-1}>
+    {view !== 'home' && (isAnalyzing || error) && <div className="container"><div role={error ? 'alert' : 'status'} className="notice request-status">{error || t('Scanning the page and requesting evidence-based analysis. Waiting for the service; progress cannot be measured.', 'Memindai halaman dan meminta analisis berbasis bukti. Menunggu layanan; progres tidak dapat diukur.')}</div></div>}
     {view === 'home' && <>
-      <section className="hero container" id="roast">
-        <div className="hero-copy"><div className="eyebrow"><span className="live-dot" /> AI-POWERED DESIGN AUDIT <span className="mono">v0.1</span></div><h1>Your website is<br /><em>good.</em> Allegedly.</h1><p className="hero-sub">Paste your project URL. Bro Code will roast the design, expose the problems, and give you fixes your AI coding agent can ship.</p><p className="tagline">Your AI built it. <strong>Our AI judges it.</strong></p>
-          <div className="input-card"><div className="input-top"><span className="mono">$ roast --target</span><span className="input-hint">{url ? 'ready to judge' : 'paste a URL to begin'}</span></div><div className="input-row"><Terminal /><input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && runRoast()} placeholder="https://your-questionable-saas.vercel.app" aria-label="Website URL" /><button className="roast-btn" onClick={runRoast} disabled={isAnalyzing}>{isAnalyzing ? 'Analyzing...' : 'Roast My App'} {isAnalyzing ? <RotateCcw className="spin" /> : <ArrowRight />}</button></div><button className="repo-toggle" onClick={() => setRepoOpen(!repoOpen)}><GitBranch /> {repoOpen ? 'Hide repository option' : 'Or add a GitHub repository'} <ChevronDown className={repoOpen ? 'rotate' : ''} /></button>{repoOpen && <input className="repo-input" placeholder="github.com/you/your-project" aria-label="GitHub repository" />}</div>{error && <p className="form-error" role="alert">{error}</p>}
-          <div className="intensity"><span className="mono">ROAST INTENSITY</span>{['Friendly Fire', 'No Mercy', 'Career Ending'].map(item => <button key={item} onClick={() => setIntensity(item)} className={intensity === item ? 'active' : ''}>{item}</button>)}</div>
-        </div><div className="hero-mascot"><div className="scribble">READY TO<br /><span>JUDGE.</span><ArrowDownRight /></div><Mascot /><div className="speech">“I’ve seen better<br />landing pages in a<br />404 error.”</div></div>
-      </section>
-
-      <section className="ticker"><div className="ticker-inner">NO FLUFF <span>✳</span> NO FAKE METRICS <span>✳</span> JUST HONEST FEEDBACK <span>✳</span> NO FLUFF <span>✳</span> NO FAKE METRICS <span>✳</span> JUST HONEST FEEDBACK <span>✳</span></div></section>
-      <section className="section container" id="how"><SectionLabel>HOW IT WORKS</SectionLabel><h2>Three steps to <span>character development.</span></h2><div className="steps"><div><b>01</b><Zap /><h3>Submit the evidence.</h3><p>Drop a URL or GitHub repo. No login, no ceremony, no “book a demo”.</p></div><div><b>02</b><Search /><h3>Get publicly judged.</h3><p>Bro Code audits your UI, UX, accessibility, and overall questionable decisions.</p></div><div><b>03</b><Check /><h3>Actually fix it.</h3><p>Copy a battle-tested prompt into your coding agent. Redemption is optional.</p></div></div></section>
-      <section className="preview-band"><div className="container preview-grid"><div><SectionLabel>EXAMPLE ROAST</SectionLabel><h2>“Bro, your landing page has 7 animations, but the <span>Sign Up</span> button leads straight to a 404.”</h2><p className="muted">A roast should sting a little. It should also tell you exactly what to do next.</p><button className="text-btn" onClick={() => setView('results')}>See the full roast <ArrowRight /></button></div><div className="terminal-preview"><div className="terminal-bar"><CircleDot /><span>viberoast / audit.log</span><span>•••</span></div><div className="terminal-lines"><p><i>01</i> scanning viewport... <strong>done</strong></p><p><i>02</i> checking button hierarchy... <strong>done</strong></p><p><i>03</i> measuring vibe... <mark>questionable</mark></p><p><i>04</i> locating personality... <mark>not found</mark></p><p className="terminal-result">Verdict: <b>needs character development.</b></p></div></div></div></section>
-      <section className="section container split-section"><div><SectionLabel>MEET BRO CODE</SectionLabel><h2>The senior dev<br />you <span>didn’t hire.</span></h2><p className="muted wide">He has reviewed 4,872 landing pages and only smiled twice. Bro Code doesn’t care about your pitch deck. He cares about your line-height.</p><button className="outline-btn">Read his manifesto <ArrowRight /></button></div><div className="quote-card"><Mascot small /><p>“Good design is when I don’t have to explain the button to you.”</p><small>— Bro Code, probably</small></div></section>
-      <section className="redemption container"><div className="redemption-copy"><SectionLabel>REDEMPTION ARC</SectionLabel><h2>Roasted.<br /><span>Fixed.</span><br />Redeemed.</h2><p>Copy the fix prompt. Ship the changes. Come back and make Bro Code proud.</p><button className="dark-btn" onClick={() => setView('fixes')}>Enter fix mode <ArrowRight /></button></div><div className="before-after"><div className="mock-screen before"><div className="mock-top" /><div className="mock-body"><span>HELLO WORLD</span><b>We make software.</b><i>Sign up</i></div><label>BEFORE <strong>38</strong></label></div><ArrowRight /><div className="mock-screen after"><div className="mock-top" /><div className="mock-body"><span>hello, human</span><b>Tools that feel<br />like magic.</b><i>Get started →</i></div><label>AFTER <strong>86</strong></label></div></div></section>
-      <section className="hall-preview container" id="hall"><div className="hall-heading"><div><SectionLabel>COMMUNITY</SectionLabel><h2>Hall of <span>Shame.</span></h2></div><button className="outline-btn" onClick={() => setView('hall')}>View leaderboard <ArrowRight /></button></div><div className="leader-list">{leaderboard.map(item => <div className="leader-row" key={item.name}><span className="rank">{item.emoji}</span><div className={`thumb ${item.color}`} /> <div className="leader-main"><b>{item.name}</b><span>{item.verdict}</span></div><strong className="score">{item.score}<small>/100</small></strong><ArrowRight /></div>)}</div></section>
-      <section className="final-cta container"><Mascot small /><div><SectionLabel>YOUR TURN</SectionLabel><h2>Let him cook.</h2><p>It’s free. It’s fast. It’s a little mean.</p></div><button className="roast-btn" onClick={() => document.getElementById('roast')?.scrollIntoView({ behavior: 'smooth' })}>Roast My App <ArrowRight /></button></section>
+      <section className="hero container" id="roast"><div className="hero-copy"><div className="eyebrow">{t('WEBSITE REVIEW, WITH RECEIPTS', 'ULASAN WEBSITE, PAKAI BUKTI')} <span className="mono">v0.1</span></div><h1>{id ? <>Websitemu<br /><em>bagus.</em> Katanya.</> : <>Your website is<br /><em>good.</em> Allegedly.</>}</h1><p className="hero-sub">{t('Paste your project URL. Bro Code will roast the design, expose the problems, and give you fixes your AI coding agent can ship.', 'Tempel URL proyekmu. Bro Code akan mengkritik desainnya, menunjukkan masalahnya, dan menyiapkan perbaikan untuk agen coding-mu.')}</p><p className="tagline">{t('Your AI built it.', 'AI-mu yang bikin.')} <strong>{t('Our AI judges it.', 'AI kami yang menilai.')}</strong></p>
+      <form className="input-card" onSubmit={event => { event.preventDefault(); void runRoast() }}><div className="input-top"><span className="mono">$ roast --target</span><span className="input-hint">{url ? t('ready to judge', 'siap dinilai') : t('paste a URL to begin', 'tempel URL untuk mulai')}</span></div><div className="input-row"><Terminal aria-hidden="true" /><input value={url} onChange={event => setUrl(event.target.value)} placeholder="https://your-project.example" aria-label={t('Website URL', 'URL website')} autoComplete="url" inputMode="url" aria-describedby={error ? 'roast-error' : 'scan-privacy'} disabled={isAnalyzing} /><button type="submit" className="roast-btn" disabled={isAnalyzing}>{isAnalyzing ? t('Scanning & analyzing…', 'Memindai & menganalisis…') : t('Roast My App', 'Roast Aplikasiku')}{isAnalyzing ? <RotateCcw /> : <ArrowRight />}</button></div><button type="button" className="repo-toggle" onClick={() => setRepoOpen(!repoOpen)} aria-expanded={repoOpen} aria-controls="repo-coming-soon"><GitBranch />{t('GitHub repository · Coming soon', 'Repositori GitHub · Segera hadir')}<ChevronDown className={repoOpen ? 'rotate' : ''} /></button>{repoOpen && <div id="repo-coming-soon"><input className="repo-input" placeholder="github.com/you/your-project" aria-label={t('GitHub repository: coming soon', 'Repositori GitHub: segera hadir')} disabled /><p className="muted">{t('Repository scanning is not supported yet. Only the website URL above will be scanned.', 'Pemindaian repositori belum tersedia. Hanya URL website di atas yang akan dipindai.')}</p></div>}</form>
+      <p id="scan-privacy" className="scan-privacy">{t('Public URLs only. Temporary private report. Nothing is published automatically.', 'Hanya URL publik. Laporan privat sementara. Tidak dipublikasikan otomatis.')}</p>{error && <p id="roast-error" className="form-error" role="alert">{error}</p>}{isAnalyzing && <p className="notice" role="status">{t('Scanning the page and requesting evidence-based analysis. Waiting for the service; progress cannot be measured.', 'Memindai halaman dan meminta analisis berbasis bukti. Menunggu layanan; progres tidak dapat diukur.')}</p>}
+      <div className="intensity" aria-label={t('Roast intensity', 'Intensitas roasting')}><span className="mono">{t('ROAST INTENSITY', 'INTENSITAS ROASTING')}</span>{(['Friendly Fire', 'No Mercy', 'Career Ending'] as const).map(item => <button key={item} disabled={isAnalyzing} onClick={() => setIntensity(item)} aria-pressed={intensity === item} className={intensity === item ? 'active' : ''}>{item}</button>)}</div>
+      </div><div className="hero-mascot"><div className="scribble">{t('READY TO', 'SIAP')}<br /><span>{t('JUDGE.', 'MENILAI.')}</span><ArrowDownRight /></div><Mascot language={language} state={error ? 'suspicious' : isAnalyzing ? 'analyzing' : url.trim() ? 'suspicious' : 'idle'} /><div className="speech">{t('“I’ve seen better landing pages in a 404 error.”', '“Halaman 404 saja kadang lebih niat dari ini.”')}</div></div></section>
+      <section className="ticker" aria-label={t('Evidence over fake metrics', 'Bukti, bukan metrik palsu')}><div className="ticker-inner">{t('NO FLUFF', 'TANPA BASA-BASI')} <span>✳</span> {t('NO FAKE METRICS', 'TANPA METRIK PALSU')} <span>✳</span> {t('JUST HONEST FEEDBACK', 'MASUKAN APA ADANYA')} <span>✳</span> {t('NO FLUFF', 'TANPA BASA-BASI')} <span>✳</span> {t('NO FAKE METRICS', 'TANPA METRIK PALSU')} <span>✳</span></div></section>
+      <section className="section container" id="how"><SectionLabel>{t('HOW IT WORKS', 'CARA KERJA')}</SectionLabel><h2>{t('Three steps to ', 'Tiga langkah menuju ')}<span>{t('character development.', 'pengembangan karakter.')}</span></h2><div className="steps"><div><b>01</b><Zap /><h3>{t('Submit the evidence.', 'Serahkan buktinya.')}</h3><p>{t('Drop a public website URL. No login, no ceremony, no “book a demo”. GitHub scanning is coming soon.', 'Masukkan URL website publik. Tanpa login, tanpa basa-basi. Pemindaian GitHub menyusul.')}</p></div><div><b>02</b><Search /><h3>{t('Get privately judged.', 'Dinilai secara privat.')}</h3><p>{t('The scanner records browser evidence. AI commentary is grounded in those findings when the provider is available.', 'Pemindai mencatat bukti dari browser. Jika layanan tersedia, komentar AI didasarkan pada temuan tersebut.')}</p></div><div><b>03</b><Check /><h3>{t('Actually fix it.', 'Benar-benar diperbaiki.')}</h3><p>{t('Review the evidence. Generate a fix prompt for your coding agent. Redemption is optional.', 'Tinjau buktinya. Buat prompt perbaikan untuk agen coding-mu. Tobat sih opsional.')}</p></div></div></section>
+      <section className="preview-band"><div className="container preview-grid"><div><SectionLabel>{t('ILLUSTRATIVE ROAST · NOT A SCAN', 'CONTOH ROASTING · BUKAN HASIL PEMINDAIAN')}</SectionLabel><h2>{id ? <>“Bro, animasimu ada tujuh, tapi tombol <span>Daftar</span> malah menuju 404.”</> : <>“Bro, your landing page has 7 animations, but the <span>Sign Up</span> button leads straight to a 404.”</>}</h2><p className="muted">{t('A fictional example of the tone, not a finding about your website. A roast should also tell you what to fix.', 'Contoh fiktif gaya komentarnya, bukan temuan dari websitemu. Roasting juga harus menjelaskan apa yang perlu diperbaiki.')}</p><button className="text-btn" onClick={() => setDialog('example')}>{t('Read the illustrative example', 'Baca contoh ilustratif')} <ArrowRight /></button></div><div className="terminal-preview"><div className="terminal-bar"><CircleDot /><span>viberoast / {t('illustration.log', 'contoh.log')}</span><span>•••</span></div><div className="terminal-lines"><p><i>01</i>{t('fictional viewport...', 'viewport fiktif...')} <strong>{t('example', 'contoh')}</strong></p><p><i>02</i>{t('button hierarchy...', 'hierarki tombol...')} <strong>{t('example', 'contoh')}</strong></p><p><i>03</i>{t('measuring vibe...', 'mengukur aura...')} <mark>{t('not a metric', 'bukan metrik')}</mark></p><p><i>04</i>{t('locating personality...', 'mencari kepribadian...')} <mark>{t('comedy only', 'hanya komedi')}</mark></p><p className="terminal-result">{t('Example verdict:', 'Contoh vonis:')} <b>{t('needs character development.', 'perlu pengembangan karakter.')}</b></p></div></div></div></section>
+      <section className="section container split-section"><div><SectionLabel>{t('MEET BRO CODE', 'KENALAN DENGAN BRO CODE')}</SectionLabel><h2>{t('The senior dev', 'Senior developer')}<br />{t('you ', 'yang ')}<span>{t('didn’t hire.', 'tak kamu rekrut.')}</span></h2><p className="muted wide">{t('A skeptical fictional reviewer with a soft spot for readable interfaces. Bro Code doesn’t care about your pitch deck. He cares about your line-height.', 'Reviewer fiktif yang skeptis, tapi suka antarmuka yang mudah dibaca. Bro Code tidak peduli pitch deck-mu. Dia peduli line-height-mu.')}</p><button className="outline-btn" onClick={() => setDialog('manifesto')}>{t('Read his manifesto', 'Baca manifestonya')} <ArrowRight /></button></div><div className="quote-card"><Mascot small language={language} /><p>{t('“Good design is when I don’t have to explain the button to you.”', '“Desain bagus itu kalau tombolnya tidak perlu dijelaskan dulu.”')}</p><small>Bro Code, {t('a fictional reviewer', 'reviewer fiktif')}</small></div></section>
+      <section className="redemption container"><div className="redemption-copy"><SectionLabel>{t('REDEMPTION ARC', 'JALUR PENEBUSAN')}</SectionLabel><h2>{t('Roasted.', 'Diroasting.')}<br /><span>{t('Fixed.', 'Diperbaiki.')}</span><br />{t('Redeemed.', 'Ditebus.')}</h2><p>{t('Copy the fix prompt. Ship the changes. Come back and make Bro Code proud.', 'Salin prompt perbaikan. Terapkan perubahannya. Kembali dan bikin Bro Code bangga.')}</p><button className="dark-btn" onClick={() => navigate(report ? 'fixes' : 'home', report ? 'top' : 'roast')}>{report ? t('Enter fix mode', 'Masuk mode perbaikan') : t('Scan a URL to unlock fixes', 'Pindai URL untuk membuat perbaikan')} <ArrowRight /></button></div><div><p className="illustration-label">{t('ILLUSTRATIVE BEFORE / AFTER · NOT MEASURED RESULTS', 'ILUSTRASI SEBELUM / SESUDAH · BUKAN HASIL PENGUKURAN')}</p><div className="before-after"><div className="mock-screen before"><div className="mock-top" /><div className="mock-body"><span>HELLO WORLD</span><b>{t('We make software.', 'Kami bikin software.')}</b><i>{t('Sign up', 'Daftar')}</i></div><label>{t('BEFORE · EXAMPLE', 'SEBELUM · CONTOH')}</label></div><ArrowRight /><div className="mock-screen after"><div className="mock-top" /><div className="mock-body"><span>hello, human</span><b>{t('Your next task.', 'Tugas berikutnya.')}<br />{t('One clear action.', 'Satu aksi jelas.')}</b><i>{t('Create a task', 'Buat tugas')}</i></div><label>{t('AFTER · EXAMPLE', 'SESUDAH · CONTOH')}</label></div></div></div></section>
+      <section className="hall-preview container" id="hall"><div className="hall-heading"><div><SectionLabel>{t('ILLUSTRATIVE EXAMPLES · NOT COMMUNITY DATA', 'CONTOH ILUSTRATIF · BUKAN DATA KOMUNITAS')}</SectionLabel><h2>Hall of <span>Shame.</span></h2></div><button className="outline-btn" onClick={() => navigate('hall')}>{t('Browse examples', 'Lihat contoh')} <ArrowRight /></button></div><div className="leader-list">{examples.map(item => <div className="leader-row" key={item.name}><span className="rank">{item.rank}</span><div className={`thumb ${item.color}`} aria-hidden="true" /><div className="leader-main"><b>{item.name} <small>({t('fictional', 'fiktif')})</small></b><span>{id ? item.id : item.en}</span></div><strong className="score">{item.score}<small>{t(' comedy heat', ' panas komedi')}</small></strong></div>)}</div></section>
+      <section className="final-cta container"><Mascot small language={language} state="helpful" /><div><SectionLabel>{t('YOUR TURN', 'GILIRANMU')}</SectionLabel><h2>{t('Let him cook.', 'Biar dia menilai.')}</h2><p>{t('Real evidence. A little attitude.', 'Bukti nyata. Sedikit nyinyir.')}</p></div><button className="roast-btn" onClick={() => { navigate('home', 'roast'); document.querySelector<HTMLInputElement>('input[autocomplete="url"]')?.focus() }}>{t('Roast My App', 'Roast Aplikasiku')} <ArrowRight /></button></section>
     </>}
-
-    {view === 'results' && <Results intensity={intensity} expanded={expanded} setExpanded={setExpanded} setView={setView} />}
-    {view === 'fixes' && <Fixes copied={copied} copyPrompt={copyPrompt} setView={setView} />}
-    {view === 'hall' && <Hall setView={setView} />}
-
-    <footer className="footer container"><Logo /><span>Built with questionable taste &amp; good intentions.</span><span>© 2025 VibeRoast</span></footer>
+    {view === 'results' && report && <Results key={report.id} report={report} language={language} improved={improved} fixes={() => navigate('fixes')} home={() => navigate('home')} rescan={() => void runRoast(scannedTarget)} scanning={isAnalyzing} />}
+    {view === 'fixes' && report && <Fixes key={report.id} report={report} language={language} selectedIds={selectedIds} select={setSelectedIds} results={() => navigate('results')} />}
+    {view === 'hall' && <Hall language={language} home={() => navigate('home')} />}
+    </div>
+    <footer className="footer container">{logo}<span>{t('Built with questionable taste & good intentions.', 'Dibuat dengan selera meragukan & niat baik.')}</span><span>© {new Date().getFullYear()} VibeRoast</span></footer>
+    {dialog && <Dialog language={language} close={() => setDialog(null)} title={dialog === 'manifesto' ? t('Bro Code’s manifesto', 'Manifesto Bro Code') : t('An illustrative roast', 'Contoh roasting ilustratif')}>{dialog === 'manifesto' ? <><p>{t('Roast the interface, not the person. Evidence before opinions. No imaginary bugs. No invented success metrics.', 'Kritik antarmukanya, bukan orangnya. Bukti sebelum opini. Tidak mengarang bug. Tidak mengarang metrik keberhasilan.')}</p><p>{t('Keep what works. Confirm uncertain findings. Make the next action obvious. And never confuse a comedy score with a professional audit.', 'Pertahankan yang sudah benar. Konfirmasikan temuan yang belum pasti. Buat tindakan berikutnya jelas. Jangan samakan skor komedi dengan audit profesional.')}</p></> : <><p className="notice">{t('Fictional example, not a scan of your site.', 'Contoh fiktif, bukan hasil pemindaian situsmu.')}</p><h3>{t('A beautiful dead end is still a dead end.', 'Jalan buntu yang cantik tetap jalan buntu.')}</h3><p>{t('If a sign-up action returns 404, confirm its destination in the browser. Fix the route or link, then test the complete sign-up journey. An animation count alone does not prove a usability problem.', 'Jika tombol daftar menuju 404, konfirmasikan tujuannya di browser. Perbaiki rute atau tautannya, lalu uji seluruh alur pendaftaran. Jumlah animasi saja tidak membuktikan masalah kegunaan.')}</p><button className="dark-btn" onClick={() => { setDialog(null); navigate('home', 'roast') }}>{t('Scan my own URL', 'Pindai URL saya')}</button></>}</Dialog>}
   </main>
-}
-
-function Results({ intensity, expanded, setExpanded, setView }: { intensity: string; expanded: number | null; setExpanded: (n: number | null) => void; setView: (v: 'home' | 'results' | 'fixes' | 'hall') => void }) {
-  const verdict = intensity === 'Friendly Fire'
-    ? 'Bro, the CTA is playing hide and seek, and the mobile layout could use a little therapy.'
-    : intensity === 'Career Ending'
-      ? 'WHAT THE FUCK BRO, you built a whole landing page and made the sign-up flow a beautifully styled dead end.'
-      : 'Bro, your CTA is more mysterious than a startup roadmap, and mobile is fighting for its life.'
-  return <div className="results-page container"><button className="back-link" onClick={() => setView('home')}>← Back to the landing page</button><div className="results-header"><div><SectionLabel>ROAST COMPLETE · JUST NOW</SectionLabel><h1>Here’s what Bro Code <em>really</em> thinks.</h1><p className="muted">Audit for <b>questionable-saas.vercel.app</b> · No Mercy mode</p></div><Mascot small /></div><div className="results-grid"><div className="site-shot"><div className="browser-bar"><span /><span /><span /> questionable-saas.vercel.app</div><div className="fake-site"><small>YOUR BRAND</small><h2>Ship faster.<br />Look better.</h2><p>We help teams build things for the internet.</p><button>Get started</button><div className="fake-circles" /></div><div className="shot-toggle"><button className="active">Desktop</button><button>Mobile</button></div></div><div className="verdict-card"><div className="verdict-top"><span>BRO CODE’S VERDICT</span><span className="red-dot" /></div><blockquote>“{verdict}”</blockquote><div className="nickname"><Mascot small /><span><small>DEVELOPER NICKNAME</small><b>Senior Prompt Engineer,<br />Junior Error Handler</b></span></div></div></div><div className="findings-head"><div><SectionLabel>THE RECEIPTS</SectionLabel><h2>Roast findings <span>({findings.length})</span></h2></div><button className="dark-btn" onClick={() => setView('fixes')}>Fix my shame <ArrowRight /></button></div><div className="finding-list">{findings.map((item, i) => <div className={`finding ${expanded === i ? 'open' : ''}`} key={item.title}><button onClick={() => setExpanded(expanded === i ? null : i)}><span className="finding-num">0{i + 1}</span><span className="finding-title">{item.title}</span><span className={`severity ${item.severity.toLowerCase()}`}>{item.severity}</span><ChevronDown /></button>{expanded === i && <div className="finding-detail"><div><small>OBSERVED ISSUE</small><p>{item.issue}</p></div><div><small>EVIDENCE</small><p>{item.evidence}</p></div><div className="fix"><small>RECOMMENDED FIX</small><p>{item.fix}</p></div></div>}</div>)}</div><div className="meter-card"><div><SectionLabel>VIBE METER</SectionLabel><h2>Somehow, still shipshape.</h2><p className="muted">Scores are based on observable UI evidence, not vibes we made up.</p></div><div className="meter-score"><strong>64</strong><span>/100</span><div className="meter-line"><i /></div></div></div></div>
-}
-
-function Fixes({ copied, copyPrompt, setView }: { copied: boolean; copyPrompt: () => void; setView: (v: 'home' | 'results' | 'fixes' | 'hall') => void }) {
-  return <div className="fix-page container"><button className="back-link" onClick={() => setView('results')}>← Back to your roast</button><SectionLabel>FIX MY SHAME</SectionLabel><h1>Turn the roast into a <em>roadmap.</em></h1><p className="muted intro">No hand-wavy advice. Just practical fixes your coding agent can actually ship.</p><div className="fix-tabs"><button className="active">Quick Fix <span>3</span></button><button>Full Rehab</button><button>Agent Prompt</button></div><div className="fix-layout"><div className="fix-cards">{findings.map((f, i) => <div className="fix-card" key={f.title}><div className="fix-check"><Check /></div><div><span>PRIORITY 0{i + 1}</span><h3>{f.title}</h3><p>{f.fix}</p><small>Expected outcome · clearer hierarchy, fewer confused clicks</small></div></div>)}</div><div className="prompt-card"><div className="prompt-head"><Terminal /><span>agent-prompt.md</span><button onClick={copyPrompt}>{copied ? <Check /> : <Copy />} {copied ? 'Copied' : 'Copy prompt'}</button></div><pre>{`# VibeRoast Fix Prompt\n\n## Project context\nquestionable-saas.vercel.app\n\n## Verified problems\n- Primary CTA lacks hierarchy\n- Excessive competing motion\n- Hero layout breaks on mobile\n\n## Implementation tasks\n1. Clarify CTA contrast and spacing.\n2. Reduce animation to one purposeful cue.\n3. Stack hero at 900px breakpoint.\n\n## Acceptance criteria\n- CTA is the clearest action above fold\n- No horizontal overflow at 360px\n- Preserve existing brand voice\n\n## Testing\nCheck keyboard focus, mobile viewport, and\nreduced-motion preferences.`}</pre></div></div></div>
-}
-
-function Hall({ setView }: { setView: (v: 'home' | 'results' | 'fixes' | 'hall') => void }) {
-  return <div className="hall-page container"><button className="back-link" onClick={() => setView('home')}>← Back home</button><div className="hall-title"><div><SectionLabel>PUBLICLY SUBMITTED</SectionLabel><h1>Hall of <em>Shame.</em></h1><p className="muted">The internet’s most questionable decisions, lovingly documented.</p></div><Mascot small /></div><div className="hall-tabs"><button className="active">Hall of Shame</button><button>Hall of Vibes</button><div className="search-box"><Search /><input placeholder="Search projects" /></div></div><div className="big-leader">{leaderboard.map((item, i) => <article key={item.name}><div className={`hall-thumb ${item.color}`}><span>{item.emoji}</span><div /></div><div className="hall-info"><span>#{i + 1} · ROASTED 42 TIMES</span><h2>{item.name}</h2><p>“{item.verdict}”</p><button onClick={() => setView('results')}>View roast <ArrowRight /></button></div><strong className="big-score">{item.score}<small> vibe</small></strong></article>)}</div><div className="publish-note"><Share2 /><span><b>Got roasted?</b> Publish your result to join the shame.</span><button className="outline-btn">Learn more</button></div></div>
 }

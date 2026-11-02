@@ -1,0 +1,44 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { Check, Copy, Terminal } from 'lucide-react'
+import type { Language, PromptOptions, RoastReport } from '@/lib/types/report'
+import { generatePrompt } from '@/lib/prompts/generate'
+import { Mascot } from '@/components/bro-code/mascot'
+import { downloadText, SectionLabel } from '@/components/shared/primitives'
+
+const priority = { high: 0, medium: 1, low: 2 }
+
+export function Fixes({ report, language, selectedIds, select, results }: { report: RoastReport; language: Language; selectedIds: string[]; select: (ids: string[]) => void; results: () => void }) {
+  const id = language === 'id'
+  const t = (en: string, indo: string) => id ? indo : en
+  const [mode, setMode] = useState<'quick' | 'full' | 'selected'>('selected')
+  const [preset, setPreset] = useState<PromptOptions['preset']>('Codex')
+  const [promptLanguage, setPromptLanguage] = useState<Language>(language)
+  const [detail, setDetail] = useState<PromptOptions['detail']>('detailed')
+  const [notice, setNotice] = useState('')
+  const [copied, setCopied] = useState(false)
+  const [generated, setGenerated] = useState<string | null>(null)
+  const sorted = useMemo(() => [...report.scan.findings].sort((a, b) => priority[a.severity] - priority[b.severity]), [report])
+  const activeIds = mode === 'quick' ? sorted.slice(0, 3).map(finding => finding.id) : mode === 'full' ? sorted.map(finding => finding.id) : selectedIds
+  const options: PromptOptions = { selectedIds: activeIds, preset, language: promptLanguage, detail }
+  const prompt = activeIds.length ? generatePrompt(report, options) : ''
+  const visible = mode === 'quick' ? sorted.slice(0, 3) : sorted
+  const changeMode = (value: typeof mode) => { setMode(value); setGenerated(null); setCopied(false); setNotice('') }
+  const copy = async () => {
+    setNotice(''); setCopied(false)
+    try {
+      if (!navigator.clipboard) throw new Error('Clipboard unavailable')
+      await navigator.clipboard.writeText(generated ?? prompt)
+      setCopied(true); setNotice(t('Prompt copied. Paste it into your coding agent.', 'Prompt disalin. Tempelkan ke agen coding pilihanmu.'))
+    } catch { setNotice(t('Copy failed. Select the prompt text manually or download the Markdown file.', 'Gagal menyalin. Pilih teks prompt secara manual atau unduh berkas Markdown.')) }
+  }
+  return <div className="fix-page container" data-testid="fixes-view"><button className="back-link" onClick={results}>{t('← Back to your roast', '← Kembali ke hasil')}</button><SectionLabel>{t('FIX MY SHAME', 'WAKTUNYA PERBAIKAN')}</SectionLabel><h1>{t('Turn the roast into a ', 'Ubah roasting jadi ')}<em>{t('roadmap.', 'rencana nyata.')}</em></h1><p className="muted intro">{t('Priorities, actual evidence, and acceptance checks for the issues in your report. Review heuristic findings before implementing them.', 'Prioritas, bukti nyata, dan kriteria penerimaan dari laporanmu. Tinjau temuan heuristik sebelum menerapkannya.')}</p>
+    <div className="fix-tabs" aria-label={t('Fix scope', 'Cakupan perbaikan')}>{(['quick', 'full', 'selected'] as const).map(value => <button key={value} aria-pressed={mode === value} className={mode === value ? 'active' : ''} onClick={() => changeMode(value)}>{value === 'quick' ? t('Quick Fix', 'Perbaikan Cepat') : value === 'full' ? t('Full Rehab', 'Perbaikan Menyeluruh') : t('Selected Issues', 'Temuan Pilihan')}{mode === value && <span>{activeIds.length}</span>}</button>)}</div>
+    <p className="muted">{mode === 'quick' ? t('Quick Fix includes up to three highest-priority findings. It is not a time estimate.', 'Perbaikan Cepat mencakup maksimal tiga temuan berprioritas tertinggi. Ini bukan perkiraan waktu.') : mode === 'full' ? t('Full Rehab includes all recorded findings.', 'Perbaikan Menyeluruh mencakup semua temuan yang tercatat.') : t('Choose the exact findings to send to your agent. Your selection stays with this report.', 'Pilih temuan yang ingin dikirim ke agen. Pilihanmu disimpan selama laporan ini terbuka.')}</p>
+    {mode === 'selected' && <div className="button-row selection-actions"><button className="outline-btn" onClick={() => { select(sorted.map(finding => finding.id)); setGenerated(null); setCopied(false); setNotice('') }}>{t('Select all', 'Pilih semua')}</button><button className="outline-btn" onClick={() => { select([]); setGenerated(null); setCopied(false); setNotice('') }}>{t('Deselect all', 'Batalkan semua')}</button><span role="status">{selectedIds.length} {t('selected', 'dipilih')}</span></div>}
+    <div className="fix-layout"><div className="fix-cards">{visible.length === 0 && <p className="notice">{t('There are no findings to turn into fixes. Return to the report to review scan limitations.', 'Tidak ada temuan untuk diperbaiki. Kembali ke laporan untuk meninjau batasan pemindaian.')}</p>}{visible.map((finding, index) => <article className="fix-card" key={finding.id}>{mode === 'selected' ? <input className="fix-checkbox" type="checkbox" aria-label={`${t('Select', 'Pilih')}: ${finding.title}`} checked={selectedIds.includes(finding.id)} onChange={event => { select(event.target.checked ? [...selectedIds, finding.id] : selectedIds.filter(value => value !== finding.id)); setGenerated(null); setCopied(false) }} /> : <div className="fix-check" aria-hidden="true"><Check /></div>}<div><span>{t('PRIORITY', 'PRIORITAS')} {String(index + 1).padStart(2, '0')} · {finding.severity} · {finding.verification}</span><h3>{finding.title}</h3><p>{finding.recommendation}</p><details><summary>{t('Evidence & acceptance', 'Bukti & kriteria penerimaan')}</summary><p className="report-url">{finding.location} · {finding.source}</p><ul>{finding.evidence.map((evidence, i) => <li key={i}>{evidence}</li>)}</ul><p><b>{t('Acceptance', 'Kriteria penerimaan')}:</b> {t('Implement the recommendation at the observed location. Re-check the original evidence with the same viewport and interaction; demonstrate that the reported issue no longer occurs. Preserve working behavior and document anything that cannot be reproduced.', 'Terapkan rekomendasi di lokasi yang diamati. Periksa ulang bukti awal dengan ukuran layar dan interaksi yang sama; tunjukkan bahwa masalah tidak lagi terjadi. Pertahankan perilaku yang sudah benar dan catat hal yang tidak dapat direproduksi.')}</p>{finding.verification !== 'verified' && <p><b>{t('Confirm this finding before changing code.', 'Konfirmasikan temuan ini sebelum mengubah kode.')}</b></p>}</details></div></article>)}</div>
+    <div><div className="prompt-options"><label>{t('Agent preset', 'Preset agen')}<select value={preset} onChange={event => { setPreset(event.target.value as PromptOptions['preset']); setGenerated(null); setCopied(false) }}>{['Codex', 'Claude Code', 'Cursor', 'Windsurf', 'Generic Agent'].map(value => <option key={value}>{value}</option>)}</select></label><label>{t('Prompt language', 'Bahasa prompt')}<select value={promptLanguage} onChange={event => { setPromptLanguage(event.target.value as Language); setGenerated(null); setCopied(false) }}><option value="en">English</option><option value="id">Bahasa Indonesia</option></select></label><label>{t('Prompt detail', 'Detail prompt')}<select value={detail} onChange={event => { setDetail(event.target.value as PromptOptions['detail']); setGenerated(null); setCopied(false) }}><option value="short">{t('Short', 'Ringkas')}</option><option value="detailed">{t('Detailed', 'Lengkap')}</option></select></label></div>
+    <div className="prompt-card"><div className="prompt-head"><Terminal /><span>agent-prompt.md</span><button disabled={!prompt} onClick={copy}>{copied ? <Check /> : <Copy />}{copied ? t('Copied', 'Tersalin') : t('Copy prompt', 'Salin prompt')}</button></div><pre tabIndex={0} aria-label={t('Generated agent prompt', 'Prompt agen yang dibuat')}>{generated ?? (prompt || t('Select at least one issue to generate a prompt. No issues will be sent accidentally.', 'Pilih setidaknya satu temuan untuk membuat prompt. Tidak ada temuan yang terkirim tanpa sengaja.'))}</pre></div><div className="button-row prompt-actions"><button className="outline-btn" disabled={!prompt} onClick={() => { setGenerated(generatePrompt(report, options)); setCopied(false); setNotice(t('Prompt regenerated from the current evidence and options.', 'Prompt dibuat ulang dari bukti dan opsi saat ini.')) }}>{t('Regenerate prompt', 'Buat ulang prompt')}</button><button className="dark-btn" disabled={!prompt} onClick={() => { downloadText(generated ?? prompt, `viberoast-${preset.toLowerCase().replaceAll(' ', '-')}.md`); setNotice(t('Markdown downloaded.', 'Markdown diunduh.')) }}>{t('Download Markdown', 'Unduh Markdown')}</button></div>{notice && <p className="notice" role="status">{notice}</p>}<div className="fix-mascot"><Mascot small state={copied ? 'proud' : 'helpful'} language={language} /></div></div></div>
+  </div>
+}

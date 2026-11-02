@@ -41,4 +41,8 @@ Warm paper, ink, muted red and terminal green stay because they are the approved
 
 ## Verification constraints discovered
 
-Docker CLI exists but Docker Desktop Linux daemon is unavailable. No credentials have been read or exposed; live provider verification requires DEEPSEEK_API_KEY and an explicitly selected available model. Do not replace either missing integration with a production mock. Ordinary CI uses isolated fixtures and mocked provider responses only.
+- Docker CLI exists but Docker Desktop's Linux daemon was initially unavailable. Docker Desktop was started and the isolated worker/proxy stack was then built and exercised with `pnpm exec tsx scripts/scanner-smoke.ts`.
+- Native scanner smoke verified: authenticated worker health, unauthenticated denial, private/alternate-address rejection, OS denial of direct loopback/metadata/internal/public egress, a real public scan through the validating proxy, and desktop plus mobile screenshots.
+- No provider credentials are configured. Live DeepSeek verification requires `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`, `DEEPSEEK_MODEL`, and `pnpm provider:verify`. Do not replace either missing integration with a production mock. CI uses isolated fixtures and mocked provider responses only.
+- Local browser acceptance runs use the installed Chrome channel (`PLAYWRIGHT_CHANNEL=chrome`); CI installs Playwright Chromium.
+
