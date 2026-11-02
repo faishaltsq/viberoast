@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ArrowDownRight,
   ArrowRight,
@@ -54,8 +54,16 @@ export default function Page() {
   const [expanded, setExpanded] = useState<number | null>(0)
   const [copied, setCopied] = useState(false)
   const [mobileMenu, setMobileMenu] = useState(false)
+  const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [error, setError] = useState('')
+  const [selectedFindings, setSelectedFindings] = useState<number[]>(findings.map((_, index) => index))
 
-  const runRoast = () => { setView('results'); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  const runRoast = () => {
+    if (!url.trim()) { setError('Paste a website URL first. Bro Code needs evidence.'); return }
+    try { new URL(url.startsWith('http') ? url : `https://${url}`) } catch { setError('That URL looks questionable. Try including a valid domain.'); return }
+    setError(''); setIsAnalyzing(true)
+    window.setTimeout(() => { setIsAnalyzing(false); setView('results'); window.scrollTo({ top: 0, behavior: 'smooth' }) }, 900)
+  }
   const copyPrompt = async () => { setCopied(true); await navigator.clipboard?.writeText('Improve the VibeRoast findings: clarify the primary CTA, reduce competing motion, and stack the hero layout for mobile.'); setTimeout(() => setCopied(false), 1800) }
 
   return <main id="top" className="site-shell">
@@ -73,7 +81,7 @@ export default function Page() {
     {view === 'home' && <>
       <section className="hero container" id="roast">
         <div className="hero-copy"><div className="eyebrow"><span className="live-dot" /> AI-POWERED DESIGN AUDIT <span className="mono">v0.1</span></div><h1>Your website is<br /><em>good.</em> Allegedly.</h1><p className="hero-sub">Paste your project URL. Bro Code will roast the design, expose the problems, and give you fixes your AI coding agent can ship.</p><p className="tagline">Your AI built it. <strong>Our AI judges it.</strong></p>
-          <div className="input-card"><div className="input-top"><span className="mono">$ roast --target</span><span className="input-hint">{url ? 'ready to judge' : 'paste a URL to begin'}</span></div><div className="input-row"><Terminal /><input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && runRoast()} placeholder="https://your-questionable-saas.vercel.app" aria-label="Website URL" /><button className="roast-btn" onClick={runRoast}>Roast My App <ArrowRight /></button></div><button className="repo-toggle" onClick={() => setRepoOpen(!repoOpen)}><GitBranch /> {repoOpen ? 'Hide repository option' : 'Or add a GitHub repository'} <ChevronDown className={repoOpen ? 'rotate' : ''} /></button>{repoOpen && <input className="repo-input" placeholder="github.com/you/your-project" aria-label="GitHub repository" />}</div>
+          <div className="input-card"><div className="input-top"><span className="mono">$ roast --target</span><span className="input-hint">{url ? 'ready to judge' : 'paste a URL to begin'}</span></div><div className="input-row"><Terminal /><input value={url} onChange={e => setUrl(e.target.value)} onKeyDown={e => e.key === 'Enter' && !e.nativeEvent.isComposing && runRoast()} placeholder="https://your-questionable-saas.vercel.app" aria-label="Website URL" /><button className="roast-btn" onClick={runRoast} disabled={isAnalyzing}>{isAnalyzing ? 'Analyzing...' : 'Roast My App'} {isAnalyzing ? <RotateCcw className="spin" /> : <ArrowRight />}</button></div><button className="repo-toggle" onClick={() => setRepoOpen(!repoOpen)}><GitBranch /> {repoOpen ? 'Hide repository option' : 'Or add a GitHub repository'} <ChevronDown className={repoOpen ? 'rotate' : ''} /></button>{repoOpen && <input className="repo-input" placeholder="github.com/you/your-project" aria-label="GitHub repository" />}</div>{error && <p className="form-error" role="alert">{error}</p>}
           <div className="intensity"><span className="mono">ROAST INTENSITY</span>{['Friendly Fire', 'No Mercy', 'Career Ending'].map(item => <button key={item} onClick={() => setIntensity(item)} className={intensity === item ? 'active' : ''}>{item}</button>)}</div>
         </div><div className="hero-mascot"><div className="scribble">READY TO<br /><span>JUDGE.</span><ArrowDownRight /></div><Mascot /><div className="speech">“I’ve seen better<br />landing pages in a<br />404 error.”</div></div>
       </section>
