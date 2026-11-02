@@ -1,0 +1,38 @@
+.workspace .scopeNote { max-width: 760px; font-size: 14px; line-height: 1.65; margin-bottom: 22px; }
+.workspace .emptySelection { margin-bottom: 24px; }
+.emptySelection h2 { margin: 0 0 8px; font-size: 19px; }
+.emptySelection p { margin: 0; font-size: 14px; line-height: 1.6; }
+.severityGroup { display: grid; gap: 12px; margin-bottom: 16px; min-width: 0; }
+.groupHeading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; border-bottom: 1px solid var(--ink); padding-bottom: 10px; }
+.groupHeading h2 { margin: 0; font-size: 17px; letter-spacing: normal; }
+.groupHeading span { font: 12px/1.5 monospace; }
+.workspace .finding { gap: 8px; padding: 16px; }
+.checkboxTarget { display: flex; align-items: flex-start; justify-content: center; padding-top: 8px; width: 44px; min-height: 44px; flex: 0 0 44px; cursor: pointer; }
+.findingBody { min-width: 0; overflow-wrap: anywhere; }
+.findingMeta { font: 11px/1.7 monospace; }
+.workspace .finding p { line-height: 1.65; }
+.workspace .finding details { font-size: 13px; line-height: 1.7; }
+.workspace .finding summary { padding-block: 10px; min-height: 44px; }
+.evidenceMeta { display: grid; gap: 4px; margin-block: 12px; }
+.evidenceMeta dt { font-weight: 700; }
+.evidenceMeta dd { margin: 0 0 8px; }
+.evidenceMeta code { font-size: 12px; }
+.finding h4 { margin: 18px 0 8px; font-size: 13px; }
+.acceptance { padding-left: 20px; }
+.acceptance li + li { margin-top: 8px; }
+.previewNote { font-size: 12px; line-height: 1.65; margin: 0 0 12px; }
+.workspace .promptHeader { gap: 10px; }
+.fileHeading { display: grid; gap: 6px; flex: 1 1 150px; min-width: 0; overflow-wrap: anywhere; }
+.fileHeading > span:first-child { font-weight: 700; font-size: 12px; }
+.fileMeta { font-size: 11px; line-height: 1.7; }
+.workspace .preview { font-size: 12px; line-height: 1.8; max-height: 650px; white-space: pre-wrap; overflow-wrap: anywhere; tab-size: 2; }
+.workspace .actions { align-items: stretch; }
+.workspace .actions button { min-height: 44px; }
+.workspace .manualCopy { display: block; min-height: 44px; margin: 12px 0 0; font-size: 12px; text-decoration: underline; color: var(--ink); }
+@media (max-width: 600px) {
+  .workspace .finding { padding: 12px; gap: 4px; }
+  .workspace .preview { padding: 16px; max-height: 500px; }
+  .workspace .promptHeader > svg { display: none; }
+  .workspace .promptHeader button { width: 100%; justify-content: center; margin-left: 0; font-size: 12px; }
+  .workspace .actions button { flex: 1 1 160px; }
+}

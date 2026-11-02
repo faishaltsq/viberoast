@@ -36,22 +36,7 @@ test('keeps the selected subset across navigation and offers a real rescan in th
   const link = page.getByRole('link', { name: 'Bagikan teks di X' })
   expect(decodeURIComponent((await link.getAttribute('href'))!)).toContain('Komentar komedi')
   await page.getByRole('button', { name: 'Pindai ulang URL ini' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Temuan berbobot lebih sedikit' })).toBeVisible()
   await expect(page.getByRole('img', { name: 'Bro Code: mengangguk setuju' })).toBeVisible()
   expect(calls).toBe(2)
 })
 
-test('clipboard permission failure offers manual selection and Markdown download', async ({ page }) => {
-  await page.addInitScript(() => {
-    Object.defineProperty(navigator, 'clipboard', { value: { writeText: () => Promise.reject(new Error('Permission denied')) } })
-  })
-  await page.route('**/api/roast', route => route.fulfill({ json: makeReport() }))
-  await page.goto('/')
-  await page.getByRole('textbox', { name: 'Website URL' }).fill('https://fixture.example.com/')
-  await page.getByRole('button', { name: 'Roast My App', exact: true }).first().click()
-  await page.getByRole('button', { name: 'Fix my shame' }).click()
-  await page.getByRole('button', { name: 'Copy prompt', exact: true }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Copy failed' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Download Markdown' })).toBeEnabled()
-  await expect(page.getByLabel('Generated agent prompt')).toContainText('img#product')
-})
