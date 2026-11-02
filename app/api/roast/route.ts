@@ -5,7 +5,7 @@ import { scanWebsite, ScannerError } from '../../../lib/scanner/client'
 import { normalizePublicUrl } from '../../../lib/security/url'
 import { intensitySchema, languageSchema, type RoastReport } from '../../../lib/types/report'
 import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '../../../lib/server/http'
-import { acquireScan, reportExpiry, retainReport } from '../../../lib/server/store'
+import { acquireScan, assertDeployment, reportExpiry, retainReport } from '../../../lib/server/store'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
@@ -16,6 +16,7 @@ export async function POST(request: Request): Promise<Response> {
   const startedAt = Date.now()
   let outcome = 'failed'
   try {
+    assertDeployment()
     assertSameOrigin(request)
     const input = await readJson(request, requestSchema)
     let url: string
