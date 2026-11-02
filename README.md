@@ -57,6 +57,18 @@ Start the isolated worker using its Compose configuration after supplying the re
 
 ## Production web deployment
 
+Vercel note: the project is linked as `viberoast`, and provider/scanner secrets are stored as
+**sensitive** Vercel environment variables for Production and Preview. Vercel cannot run the
+isolated scanner, and its serverless functions cannot use the process-local report store or
+rate limiter. Therefore `DEPLOYMENT_MODE` and `APP_ORIGIN` are deliberately **not** set on
+Vercel until the worker has a real host; the app then fails closed with
+`DEPLOYMENT_NOT_CONFIGURED` instead of pretending scanning works. Never set
+`DEPLOYMENT_MODE=single-instance` on Vercel to make the button appear functional.
+
+Host the worker + proxy on a long-lived Linux Docker host, expose only its control port over a
+private/TLS network, then set `SCANNER_URL`, `APP_ORIGIN`, and `DEPLOYMENT_MODE` for a
+single-instance web deployment.
+
 ```sh
 pnpm typecheck
 pnpm lint
