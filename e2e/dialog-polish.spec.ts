@@ -1,0 +1,23 @@
+import { test, expect } from '@playwright/test'
+
+test('the mobile dialog fits and centers, traps keyboard focus, and restores its trigger', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 800 })
+  await page.goto('/')
+  const trigger = page.getByRole('button', { name: 'Read his manifesto', exact: true })
+  await trigger.click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toBeVisible()
+  const bounds = await dialog.boundingBox()
+  expect(bounds!.x).toBeGreaterThan(0)
+  expect(bounds!.x + bounds!.width).toBeLessThan(360)
+  expect(Math.abs(bounds!.x + bounds!.width / 2 - 180)).toBeLessThan(1)
+  expect(Math.abs(bounds!.y + bounds!.height / 2 - 400)).toBeLessThan(1)
+  const close = dialog.getByRole('button', { name: 'Close dialog' })
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Tab')
+  await page.keyboard.press('Tab')
+  await expect(close).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})

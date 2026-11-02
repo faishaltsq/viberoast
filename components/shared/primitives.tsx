@@ -11,10 +11,11 @@ export function Dialog({ title, children, close, language }: { title: string; ch
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
-    ref.current?.showModal()
-    return () => { previous?.focus() }
+    const dialog = ref.current
+    dialog?.showModal()
+    return () => { dialog?.close(); previous?.focus({ preventScroll: true }) }
   }, [])
-  return <dialog ref={ref} className="brand-dialog" aria-labelledby="dialog-title" onCancel={event => { event.preventDefault(); close() }}><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button className="outline-btn" onClick={close} autoFocus aria-label={language === 'id' ? 'Tutup dialog' : 'Close dialog'}>×</button></div>{children}</dialog>
+  return <dialog ref={ref} className="brand-dialog" aria-labelledby="dialog-title" onCancel={event => { event.preventDefault(); close() }}><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button className="outline-btn" onClick={close} aria-label={language === 'id' ? 'Tutup dialog' : 'Close dialog'}>×</button></div>{children}</dialog>
 }
 
 export function downloadText(text: string, name: string) {
