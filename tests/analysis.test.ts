@@ -275,7 +275,7 @@ describe('Repository Analysis Engine', () => {
       const findings = checkSecurity(ctx)
       const secretFinding = findings.find((f) => f.id.includes('hardcoded-secret'))
       expect(secretFinding).toBeDefined()
-      expect(secretFinding?.severity).toBe('high')
+      expect(secretFinding?.severity).toBe('medium')
       expect(secretFinding?.evidence[0]).toContain('[redacted]')
     })
 

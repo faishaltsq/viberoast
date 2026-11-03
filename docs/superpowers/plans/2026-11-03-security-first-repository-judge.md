@@ -302,6 +302,6 @@ pnpm build
 ## Execution ledger
 
 - Task 1: implemented; specification and independent quality reviews clear after corrections at snippet, extraction and GitHub-client clipping boundaries. Harvested values propagate by direct union; truncated excerpts are withheld.
-- Task 2: next; provider-pattern source research completed, adoption pending detector implementation. Tasks 3–8 pending.
+- Task 2: implemented; specification and quality reviews clear, including assignment-bound JWT exemptions, overlap-safe masking, stable IDs and linear Bedrock pattern. Controller verified 106 scoped tests, typecheck and scoped lint. Tasks 3–8 pending.
 - Controller final Task 1 verification: 9 focused files / 91 tests passed; typecheck passed; diff whitespace check passed. Full release suite remains pending after integration.
 - Planning validation: plan block checker passed; focused untouched baseline passed (3 files, 29 tests). These are not final release gates.
