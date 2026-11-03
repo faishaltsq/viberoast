@@ -1,5 +1,8 @@
 pmOnFail: ignore
+fetchTimeout: 600000
 
 minimumReleaseAgeExclude:
   - '@next/*'
   - next
+allowBuilds:
+  esbuild: true

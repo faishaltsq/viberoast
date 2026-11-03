@@ -1,0 +1,202 @@
+.results :global(.results-grid) {
+  align-items: start;
+}
+
+.results :global(.site-shot) {
+  min-height: 0;
+}
+
+.results :global(.shot-toggle) {
+  position: static;
+  display: flex;
+  justify-content: flex-end;
+  border: 0;
+  border-top: 1px solid var(--ink);
+}
+
+.results :global(.shot-toggle) button {
+  min-height: 44px;
+  min-width: 88px;
+}
+
+.results .screenshot {
+  position: relative;
+  width: 100%;
+  height: auto;
+  min-height: 220px;
+  aspect-ratio: 16 / 10;
+  scrollbar-width: none;
+}
+
+.results .screenshot::-webkit-scrollbar {
+  display: none;
+}
+
+.results :global(.site-shot):focus-within {
+  outline: 3px solid var(--ink);
+  outline-offset: 4px;
+}
+
+.results .screenshot[data-viewport='mobile'] {
+  width: min(100%, 280px);
+  min-height: 0;
+  aspect-ratio: 390 / 844;
+  margin-inline: auto;
+}
+
+.pendingImage {
+  visibility: hidden;
+}
+
+.screenshotStatus {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  text-align: center;
+}
+
+.screenshotStatus p {
+  max-width: 310px;
+  margin: 10px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.results .scannerVerdict {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.results :global(.verdict-card) blockquote {
+  margin-block: 22px;
+  font-size: clamp(25px, 3vw, 34px);
+  line-height: 1.15;
+}
+
+.results :global(.verdict-card) > p {
+  margin-top: 0;
+}
+
+.results .findingMeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  color: var(--ink);
+}
+
+.verification {
+  display: inline-block;
+  padding: 3px 6px;
+  border: 1px solid currentColor;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.results :global(.finding[data-verification='verified']) .verification {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.results :global(.finding[data-verification='heuristic']) .verification {
+  border-style: dashed;
+}
+
+.results :global(.finding[data-verification='inconclusive']) .verification {
+  border: 3px double currentColor;
+  padding: 1px 4px;
+}
+
+.verificationNote {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ink);
+}
+
+.results :global(.finding-detail) small {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.results :global(.finding-title) {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.hallTabGroup {
+  display: flex;
+}
+
+.hallTools,
+.hallTools > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.hallTools {
+  margin-bottom: 24px;
+}
+
+.hallTools p {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.hallTools :global(.hall-sort) {
+  margin: 0;
+}
+
+.hallTools button,
+.hallTools select,
+.hall :global(.hall-info) button {
+  min-height: 44px;
+}
+
+.hall :global(.search-box):focus-within {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.hall :global(.hall-info) {
+  min-width: 0;
+}
+
+.results button:focus-visible,
+.results a:focus-visible,
+.hall button:focus-visible,
+.hall select:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 4px;
+}
+
+@media (max-width: 760px) {
+  .results :global(.verdict-card) {
+    order: -1;
+  }
+
+  .results :global(.finding-detail) {
+    gap: 16px;
+  }
+
+  .hallTabGroup {
+    width: 100%;
+  }
+
+  .hallTabGroup button {
+    flex: 1;
+    min-height: 44px;
+  }
+
+  .hallTools > div {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}

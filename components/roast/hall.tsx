@@ -1,0 +1,37 @@
+'use client'
+
+import { useMemo, useState } from 'react'
+import { Search, Share2 } from 'lucide-react'
+import type { Language } from '@/lib/types/report'
+import { Mascot } from '@/components/bro-code/mascot'
+import { Dialog, SectionLabel } from '@/components/shared/primitives'
+import styles from './results-hall.module.css'
+
+export const examples = [
+  { name: 'TaskToast', en: 'Bro, your empty state has more personality than the app.', id: 'Bro, halaman kosongmu lebih berkepribadian daripada aplikasinya.', score: 18, rank: '01', color: 'green', note: ['A fictional empty-state example: explain why the list is empty and give one useful next action.', 'Contoh fiktif halaman kosong: jelaskan kenapa daftar kosong dan berikan satu tindakan lanjutan yang berguna.'] },
+  { name: 'CryptoBros.app', en: 'The gradients called. They want their 2021 back.', id: 'Gradiennya menelepon. Mereka minta tahun 2021 dikembalikan.', score: 72, rank: '02', color: 'red', note: ['A fictional hierarchy example: reserve the strongest visual emphasis for the primary action, not every surface.', 'Contoh fiktif hierarki: gunakan penekanan visual terkuat untuk tindakan utama, bukan setiap elemen.'] },
+  { name: 'SaaSStarter', en: 'It is giving template, but at least the template is centered.', id: 'Auranya template banget, tapi setidaknya templatenya rata tengah.', score: 42, rank: '03', color: 'yellow', note: ['A fictional content example: replace generic claims with a specific product benefit and supporting evidence.', 'Contoh fiktif konten: ganti klaim generik dengan manfaat produk yang spesifik beserta buktinya.'] },
+]
+
+export function Hall({ language, home }: { language: Language; home: () => void }) {
+  const id = language === 'id'
+  const t = (en: string, indo: string) => id ? indo : en
+  const [tab, setTab] = useState<'shame' | 'vibes'>('shame')
+  const [search, setSearch] = useState('')
+  const [sort, setSort] = useState('heat')
+  const [example, setExample] = useState<(typeof examples)[number] | null>(null)
+  const [about, setAbout] = useState(false)
+  const query = search.trim().toLowerCase()
+  const list = useMemo(() => examples.filter(item => (tab === 'shame' ? item.score >= 40 : item.score < 40) && `${item.name} ${id ? item.id : item.en}`.toLowerCase().includes(query)).sort((a, b) => sort === 'name' ? a.name.localeCompare(b.name) : sort === 'cool' ? a.score - b.score : b.score - a.score), [tab, query, sort, id])
+  return <div className={`hall-page container ${styles.hall}`}>
+    <button className="back-link" onClick={home}>{t('← Back home', '← Kembali ke beranda')}</button>
+    <div className="hall-title"><div><SectionLabel>{t('ILLUSTRATIVE EXAMPLES ONLY', 'HANYA CONTOH ILUSTRATIF')}</SectionLabel><h1>Hall of <em>{tab === 'shame' ? 'Shame.' : 'Vibes.'}</em></h1><p className="muted">{t('Fictional projects, not real submissions or scan results. Community publishing is not available yet.', 'Proyek fiktif, bukan kiriman pengguna atau hasil pemindaian nyata. Publikasi komunitas belum tersedia.')}</p></div><Mascot small language={language} state={tab === 'shame' ? 'disappointed' : 'impressed'} /></div>
+    <div className="hall-tabs"><div className={styles.hallTabGroup} role="group" aria-label={t('Example collection', 'Kumpulan contoh')}><button className={tab === 'shame' ? 'active' : ''} aria-pressed={tab === 'shame'} aria-controls="hall-examples" onClick={() => setTab('shame')}>Hall of Shame</button><button className={tab === 'vibes' ? 'active' : ''} aria-pressed={tab === 'vibes'} aria-controls="hall-examples" onClick={() => setTab('vibes')}>Hall of Vibes</button></div><div className="search-box"><Search aria-hidden="true" /><input value={search} onChange={event => setSearch(event.target.value)} placeholder={t('Search examples', 'Cari contoh')} aria-label={t('Search projects', 'Cari proyek')} /></div></div>
+    <div className={styles.hallTools}><p role="status">{t(`${list.length} ${list.length === 1 ? 'example' : 'examples'} shown`, `${list.length} contoh ditampilkan`)}{query && <> · {t('Search', 'Pencarian')}: “{search.trim()}”</>}</p><div>{query && <button className="outline-btn" onClick={() => setSearch('')}>{t('Clear search', 'Hapus pencarian')}</button>}<label className="hall-sort">{t('Sort examples', 'Urutkan contoh')} <select value={sort} onChange={event => setSort(event.target.value)}><option value="heat">{t('Most roast heat', 'Roasting terpanas')}</option><option value="cool">{t('Least roast heat', 'Roasting paling ringan')}</option><option value="name">{t('Project name A–Z', 'Nama proyek A–Z')}</option></select></label></div></div>
+    <div id="hall-examples" className="big-leader">{list.map((item, index) => <article key={item.name}><div className={`hall-thumb ${item.color}`} aria-hidden="true"><span>{String(index + 1).padStart(2, '0')}</span></div><div className="hall-info"><span>{t('FICTIONAL EXAMPLE · NOT SCANNED', 'CONTOH FIKTIF · TIDAK DIPINDAI')}</span><h2>{item.name}</h2><p>“{id ? item.id : item.en}”</p><button onClick={() => setExample(item)}>{t('Read illustrative lesson', 'Baca pelajaran dari contoh')}</button></div><strong className="big-score">{item.score}<small>{t(' illustrative comedy heat', ' panas komedi ilustratif')}</small></strong></article>)}</div>
+    {!list.length && <div className="notice"><h2>{t('No examples match.', 'Tidak ada contoh yang cocok.')}</h2><p>{t('Clear your search to restore this collection, or switch tabs. These are examples only, not a live leaderboard.', 'Hapus pencarian untuk menampilkan koleksi ini, atau ganti tab. Ini hanya contoh, bukan papan peringkat langsung.')}</p><button className="outline-btn" onClick={() => { setSearch(''); setSort('heat'); setTab('shame') }}>{t('Reset filters', 'Atur ulang filter')}</button></div>}
+    <div className="publish-note"><Share2 aria-hidden="true" /><span><b>{t('Your scans stay private.', 'Hasil pemindaianmu tetap privat.')}</b> {t('No automatic publication, no public report link.', 'Tidak dipublikasikan otomatis, tanpa tautan laporan publik.')}</span><button className="outline-btn" onClick={() => setAbout(true)}>{t('About publishing', 'Tentang publikasi')}</button></div>
+    {example && <Dialog title={example.name} language={language} close={() => setExample(null)}><p className="notice">{t('Illustrative fiction. This is not an actual audit.', 'Contoh fiktif. Ini bukan audit nyata.')}</p><p>{example.note[id ? 1 : 0]}</p><button className="dark-btn" onClick={() => { setExample(null); home() }}>{t('Scan my own URL', 'Pindai URL saya')}</button></Dialog>}
+    {about && <Dialog title={t('Private by default', 'Privat secara bawaan')} language={language} close={() => setAbout(false)}><p>{t('Opt-in community publishing is not implemented. Your report remains temporary and private. Downloading an image or opening X text does not publish the report. Never share screenshots that contain private information.', 'Publikasi komunitas dengan persetujuan belum tersedia. Laporanmu tetap sementara dan privat. Mengunduh gambar atau membuka teks X tidak memublikasikan laporan. Jangan bagikan screenshot yang berisi informasi pribadi.')}</p></Dialog>}
+  </div>
+}
