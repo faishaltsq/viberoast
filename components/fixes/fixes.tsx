@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, FileText } from 'lucide-react'
-import type { Language, PromptOptions, RoastReport } from '@/lib/types/report'
+import type { Language, PromptOptions, RoastReport, WebsiteReport } from '@/lib/types/report'
 import { generatePrompt } from '@/lib/prompts/generate'
 import { Mascot } from '@/components/bro-code/mascot'
 import { downloadText, SectionLabel } from '@/components/shared/primitives'
@@ -12,7 +12,7 @@ const severities = ['high', 'medium', 'low'] as const
 const priority = { high: 0, medium: 1, low: 2 }
 type Feedback = { prompt: string; kind: 'copied' | 'copy-failed' | 'other'; message: string }
 
-export function Fixes({ report, language, selectedIds, select, results }: { report: RoastReport; language: Language; selectedIds: string[]; select: (ids: string[]) => void; results: () => void }) {
+export function Fixes({ report, language, selectedIds, select, results }: { report: WebsiteReport; language: Language; selectedIds: string[]; select: (ids: string[]) => void; results: () => void }) {
   const id = language === 'id'
   const t = (en: string, indo: string) => id ? indo : en
   const [mode, setMode] = useState<'quick' | 'full' | 'selected'>('selected')

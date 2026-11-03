@@ -57,8 +57,31 @@ describe('public destination boundary', () => {
 describe('redacted outbound evidence', () => {
   it('removes credentials, query values, emails, tokens and authorization headers', () => {
     const secret = 'abcdefghijklmnopqrstuv'
-    const text = redactSecrets(`Authorization: Bearer ${secret} Authorization=Basic dXNlcjpwYXNz api_key=hello person@example.org https://user:pw@example.org/path?token=oops#secret sk-abcdefghijklmnopqrst`)
-    for (const value of [secret, 'dXNlcjpwYXNz', 'hello', 'person@example.org', 'token=oops', 'user:pw', 'sk-abcdefghijklmnopqrst']) expect(text).not.toContain(value)
+    const ghToken = ['ghp', '111122223333444455556666777788889999'].join('_')
+    const ghPat = ['github', 'pat', '11A22B33C_44D55E66F77G88H99I00'].join('_')
+    const stripeKey = ['sk', 'live', '1234567890abcdefghijklmn'].join('_')
+    const slackToken = ['xoxb', '1234567890', 'abcdef1234'].join('-')
+    const awsKey = ['ASIA', 'EXAMPLEKEY123456'].join('')
+    const awsSecret = ['wJalrXUtnFEMI', 'K7MDENG', 'bPxRfiCYEXAMPLEKEY'].join('/')
+
+    const text = redactSecrets(`Authorization: Bearer ${secret} Authorization=Basic dXNlcjpwYXNz api_key=hello person@example.org https://user:pw@example.org/path?token=oops#secret sk-abcdefghijklmnopqrst ${ghToken} ${ghPat} ${awsKey} ${stripeKey} ${slackToken} aws_secret_access_key="${awsSecret}"`)
+    for (const value of [
+      secret,
+      'dXNlcjpwYXNz',
+      'hello',
+      'person@example.org',
+      'token=oops',
+      'user:pw',
+      'sk-abcdefghijklmnopqrst',
+      ghToken,
+      ghPat,
+      awsKey,
+      stripeKey,
+      slackToken,
+      awsSecret,
+    ]) {
+      expect(text).not.toContain(value)
+    }
     expect(redactUrl('https://example.org/path?secret=value#token')).toBe('https://example.org/path')
   })
   it('redacts entire quoted values rather than leaking a space-delimited tail', () => {
