@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { parseGitHubUrl } from '@/lib/github/parse-url'
-import { fetchRepoMeta, fetchFileContent } from '@/lib/github/client'
+import { fetchRepoMeta } from '@/lib/github/client'
 import { fetchTree } from '@/lib/github/tree'
 import { selectFiles } from '@/lib/github/select-files'
 import { extractFiles } from '@/lib/github/extract'
@@ -133,6 +133,7 @@ export async function POST(request: Request): Promise<Response> {
       commentary = generated.commentary
     } catch (error) {
       if (routeSignal.aborted) throw error
+      console.error('[REPO_ROAST_AI_FAILED]', error)
     }
     
     routeSignal.throwIfAborted()
