@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { ArrowRight, ChevronDown, RotateCcw } from 'lucide-react'
-import type { Language, RoastReport } from '@/lib/types/report'
+import type { Language, RoastReport, WebsiteReport } from '@/lib/types/report'
 import { calculateScore } from '@/lib/roast/score'
 import { downloadShareCard, shareText } from '@/lib/share/card'
 import { Mascot } from '@/components/bro-code/mascot'
@@ -21,7 +21,7 @@ function Screenshot({ source, viewport, language }: { source: string | null; vie
   </div>
 }
 
-export function Results({ report, language, fixes, home, rescan, scanning, improved }: { report: RoastReport; language: Language; fixes: () => void; home: () => void; rescan: () => void; scanning: boolean; improved: boolean }) {
+export function Results({ report, language, fixes, home, rescan, scanning, improved }: { report: WebsiteReport; language: Language; fixes: () => void; home: () => void; rescan: () => void; scanning: boolean; improved: boolean }) {
   const id = language === 'id'
   const t = (en: string, indo: string) => id ? indo : en
   const [expanded, setExpanded] = useState<string | null>(report.scan.findings[0]?.id ?? null)

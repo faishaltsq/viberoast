@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import type { RoastReport } from '../lib/types/report'
+import type { WebsiteReport } from '../lib/types/report'
 import { makeReport } from '../tests/fixtures/report'
 
 function reportFixture() {
@@ -8,7 +8,7 @@ function reportFixture() {
   return report
 }
 
-async function showReport(page: Page, report: RoastReport) {
+async function showReport(page: Page, report: WebsiteReport) {
   await page.route('**/api/roast', route => route.fulfill({ json: report }))
   await page.goto('/')
   await page.getByRole('textbox', { name: 'Website URL' }).fill(report.scan.url)

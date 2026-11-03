@@ -1,0 +1,170 @@
+import { randomUUID } from 'node:crypto'
+import { z } from 'zod'
+import { parseGitHubUrl } from '@/lib/github/parse-url'
+import { fetchRepoMeta, fetchFileContent } from '@/lib/github/client'
+import { fetchTree } from '@/lib/github/tree'
+import { selectFiles } from '@/lib/github/select-files'
+import { extractFiles } from '@/lib/github/extract'
+import { type RepoScanResult, intensitySchema, languageSchema, type RoastReport, type Commentary } from '@/lib/types/report'
+import { analyzeRepository } from '@/lib/analysis/repository'
+import { generateRepoRoast } from '@/lib/ai/deepseek'
+import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '@/lib/server/http'
+import { acquireScan, assertDeployment, reportExpiry, retainReport } from '@/lib/server/store'
+
+export const runtime = 'nodejs'
+export const maxDuration = 160
+
+const requestSchema = z.object({
+  url: z.string().min(1).max(2048).optional(),
+  owner: z.string().min(1).max(100).optional(),
+  repo: z.string().min(1).max(100).optional(),
+  language: languageSchema,
+  intensity: intensitySchema,
+  sha: z.string().length(40).optional(),
+}).strict().refine(data => Boolean(data.url || (data.owner && data.repo)), {
+  message: 'Must provide url or owner and repo',
+})
+
+export async function POST(request: Request): Promise<Response> {
+  let release: (() => void) | undefined
+  const startedAt = Date.now()
+  let outcome = 'failed'
+  const timeoutController = new AbortController()
+  const routeTimeout = setTimeout(() => {
+    timeoutController.abort(new Error('Repository roast timed out after 140s'))
+  }, 140_000)
+  const routeSignal = AbortSignal.any([request.signal, timeoutController.signal])
+
+  try {
+    assertDeployment('repository')
+    assertSameOrigin(request)
+    const input = await readJson(request, requestSchema)
+    routeSignal.throwIfAborted()
+    
+    // Parse and validate GitHub URL
+    const target = input.url || `${input.owner}/${input.repo}`
+    const parsed = parseGitHubUrl(target)
+    if (!parsed) {
+      throw new HttpError(400, 'INVALID_REPOSITORY', 'Repository does not exist or cannot be accessed.')
+    }
+    
+    release = acquireScan(request, Date.now(), 'repository')
+    
+    // Fetch repository metadata
+    const meta = await fetchRepoMeta(parsed.owner, parsed.repo, routeSignal)
+    const sha = input.sha || meta.sha
+    
+    // Fetch file tree with 2000 path limit
+    const { files: tree, truncated: treeTruncated } = await fetchTree(
+      parsed.owner,
+      parsed.repo,
+      sha,
+      2000,
+      routeSignal
+    )
+    
+    // Select files for inspection (default: 30 max, 256 KiB total, 32 KiB per file)
+    const selected = selectFiles(tree, {
+      maxFiles: 30,
+      maxBytesTotal: 262_144,
+      maxBytesPerFile: 32_768,
+    })
+    
+    // Extract file contents
+    const extraction = await extractFiles(
+      parsed.owner,
+      parsed.repo,
+      sha,
+      selected.selected,
+      262_144,
+      32768,
+      routeSignal
+    )
+    
+    routeSignal.throwIfAborted()
+    
+    // Build repository scan result
+    const repoScan: RepoScanResult = {
+      owner: parsed.owner,
+      repo: parsed.repo,
+      sha,
+      defaultBranch: meta.defaultBranch,
+      description: meta.description,
+      language: meta.language,
+      stargazerCount: meta.stargazerCount,
+      forkCount: meta.forkCount,
+      commitDate: null,
+      commitMessage: null,
+      tree: selected.selected.map(f => ({ path: f.path, type: f.type, size: f.size })),
+      selectedFiles: extraction.files.map(f => ({ path: f.path, size: f.size, content: f.content, truncated: f.truncated })),
+      coverage: {
+        filesDiscovered: tree.length,
+        filesInspected: extraction.files.length,
+        bytesInspected: extraction.bytesInspected,
+        treeTruncated: treeTruncated,
+        contentTruncated: extraction.contentTruncated,
+      },
+      findings: [],
+      strengths: [],
+      warnings: [],
+      evidenceSummary: '',
+    }
+
+    // Run repository analysis engine
+    const analysis = analyzeRepository({
+      owner: parsed.owner,
+      repo: parsed.repo,
+      sha,
+      tree,
+      files: extraction.files,
+      meta,
+      treeTruncated,
+      contentTruncated: extraction.contentTruncated,
+    })
+    repoScan.findings = analysis.findings
+    repoScan.strengths = analysis.strengths
+    repoScan.warnings = analysis.warnings
+    repoScan.evidenceSummary = analysis.evidenceSummary
+    
+    // Generate AI roast
+    let commentary: Commentary | null = null
+    try {
+      const generated = await generateRepoRoast(repoScan, input, routeSignal)
+      commentary = generated.commentary
+    } catch (error) {
+      if (routeSignal.aborted) throw error
+    }
+    
+    routeSignal.throwIfAborted()
+    
+    // Retain repository report
+    const report: RoastReport = {
+      id: randomUUID(),
+      expiresAt: reportExpiry(),
+      language: input.language,
+      intensity: input.intensity,
+      scanKind: 'repository',
+      repoScan,
+      commentary,
+      aiStatus: commentary ? 'completed' : 'unavailable',
+      aiMessage: commentary ? null : input.language === 'id'
+        ? 'Bukti pemindaian tersedia, tapi komentar AI sedang tidak tersedia.'
+        : 'Scanner evidence is available, but AI commentary is unavailable.',
+      visualAnalysis: false,
+    }
+    
+    const storedReport = retainReport(report)
+    outcome = report.aiStatus === 'unavailable' ? 'scanner_only' : 'completed'
+    return json(storedReport)
+    
+  } catch (error) {
+    outcome = request.signal.aborted ? 'cancelled' : timeoutController.signal.aborted ? 'TIMEOUT' : error instanceof HttpError ? error.code : 'ANALYSIS_UNAVAILABLE'
+    if (request.signal.aborted) return json({ error: 'The request was cancelled.', code: 'REQUEST_CANCELLED' }, 499)
+    if (timeoutController.signal.aborted) return json({ error: 'The repository analysis timed out. Try again shortly.', code: 'ANALYSIS_TIMEOUT' }, 504)
+    return errorResponse(error)
+  } finally {
+    clearTimeout(routeTimeout)
+    release?.()
+    console.info(JSON.stringify({ event: 'repository_roast_request', outcome, durationMs: Date.now() - startedAt }))
+  }
+}
