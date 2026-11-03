@@ -25,6 +25,8 @@ function visualFinding(id = 'visual-1') {
     severity: 'low', confidence: 'medium', viewport: 'desktop', region: 'Hero action row below the introduction',
     evidence: ['The secondary action label visibly overlaps the primary action border.'],
     recommendation: 'Increase the gap between the hero actions while retaining the existing button styles.',
+    roast: 'Those hero actions could use some elbow room.',
+    reaction: 'helpful',
   }
 }
 function generated() {
@@ -41,7 +43,7 @@ function response(value: unknown = generated()) {
 function withVisuals(input = scan(), visuals = [visualFinding()]) {
   const output = generated()
   output.visualFindings = visuals
-  output.findings = [...input.findings, ...visuals].map(({ id }) => ({
+  output.findings = input.findings.map(({ id }) => ({
     id, evidenceIds: [id], roast: 'This observed detail deserves a little breathing room.', reaction: 'helpful',
   }))
   return output
@@ -269,6 +271,40 @@ it('preserves canonical finding order if provider entries arrive in a different 
 })
 
 describe('screenshot UI/UX judge', () => {
+  it('accepts a visual-only report without duplicate commentary entries for new visual IDs', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    input.findings = []
+    const output = withVisuals(input)
+    fetchMock.mockImplementation(async () => response(output))
+    const result = await generateRoast(input, options)
+    expect(result.commentary.findings).toEqual([{
+      id: 'visual-1', evidenceIds: ['visual-1'],
+      roast: output.visualFindings[0].roast, reaction: 'helpful',
+      explanation: result.visualFindings[0].description,
+      recommendation: result.visualFindings[0].recommendation,
+    }])
+    expect(result.visualFindings[0]).toMatchObject({ source: 'browser', verification: 'heuristic' })
+    expect(input.findings).toEqual([])
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['roast', 'reaction'])('rejects a visual observation missing its own %s', async (field) => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const output = withVisuals()
+    Reflect.deleteProperty(output.visualFindings[0], field)
+    fetchMock.mockImplementation(async () => response(output))
+    await expect(generateRoast(scan(), options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it('rejects visual IDs repeated in the scanner commentary array', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const output = withVisuals()
+    output.findings.push({ id: 'visual-1', evidenceIds: ['visual-1'], roast: 'Duplicated visual commentary.', reaction: 'helpful' })
+    fetchMock.mockImplementation(async () => response(output))
+    await expect(generateRoast(scan(), options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
   it('accepts a grounded visual observation from a supplied screenshot without mutating the scan', async () => {
     vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
     const input = scan()
