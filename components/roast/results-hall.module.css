@@ -2,6 +2,22 @@
   align-items: start;
 }
 
+.results :global(.repo-evidence-panel .terminal-preview) {
+  transform: none;
+}
+
+.repoGrid {
+  grid-template-columns: minmax(320px, 1.2fr) minmax(280px, 1fr);
+  gap: 24px;
+}
+
+@media (max-width: 800px) {
+  .repoGrid {
+    grid-template-columns: 1fr;
+    gap: 20px;
+  }
+}
+
 .results :global(.site-shot) {
   min-height: 0;
 }

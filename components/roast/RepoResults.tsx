@@ -31,7 +31,10 @@ export function RepoResults({
 }: RepoResultsProps) {
   const [expanded, setExpanded] = useState<string | null>(null)
   const [sharing, setSharing] = useState<'square' | 'landscape' | null>(null)
-  const [expired, setExpired] = useState(false)
+  const [expiredAt, setExpiredAt] = useState<string | null>(() =>
+    Date.parse(report.expiresAt) <= Date.now() ? report.expiresAt : null
+  )
+  const expired = expiredAt === report.expiresAt
   const id = language === 'id'
   const t = (en: string, indo: string) => (id ? indo : en)
 
@@ -42,12 +45,8 @@ export function RepoResults({
   const isPartial = scan.coverage.treeTruncated || scan.coverage.contentTruncated
 
   useEffect(() => {
-    const remaining = new Date(report.expiresAt).getTime() - Date.now()
-    if (remaining <= 0) {
-      setExpired(true)
-      return
-    }
-    const timer = window.setTimeout(() => setExpired(true), remaining)
+    const remaining = Math.max(0, Date.parse(report.expiresAt) - Date.now())
+    const timer = window.setTimeout(() => setExpiredAt(report.expiresAt), remaining)
     return () => clearTimeout(timer)
   }, [report.expiresAt])
 
@@ -154,7 +153,7 @@ export function RepoResults({
         </aside>
       )}
 
-      <div className="results-grid" style={{ gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 1fr)', gap: '24px' }}>
+      <div className={`results-grid ${styles.repoGrid}`}>
         <RepoEvidence scan={scan} language={language} />
         <RepoVerdict report={report} language={language} />
       </div>
