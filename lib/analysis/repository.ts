@@ -6,6 +6,7 @@ import { checkMaintainability } from './checks/maintainability'
 import { checkTestingCi } from './checks/testing-ci'
 import { checkDependencies } from './checks/dependencies'
 import { checkSecurity } from './checks/security'
+import { analyzeStaticSecurity } from '../security/static'
 import { checkGitDx } from './checks/git-dx'
 import { deduplicateFindings } from './deduplicate'
 import { prioritizeFindings, detectStrengths, detectWarnings } from './prioritize'
@@ -21,9 +22,19 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
     if (/^\d+$/.test(linePart)) {
       const lineNum = parseInt(linePart, 10)
       if (lineNum > totalLines) {
+        const validLine = Math.max(1, totalLines)
         return {
           ...finding,
-          location: `${filePath}:${Math.max(1, totalLines)}`,
+          location: `${filePath}:${validLine}`,
+          ...(finding.security
+            ? {
+                security: {
+                  ...finding.security,
+                  lineStart: validLine,
+                  lineEnd: validLine,
+                },
+              }
+            : {}),
         }
       }
     } else if (/^(\d+)-(\d+)$/.test(linePart)) {
@@ -36,6 +47,15 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
         return {
           ...finding,
           location: `${filePath}:${validStart}-${validEnd}`,
+          ...(finding.security
+            ? {
+                security: {
+                  ...finding.security,
+                  lineStart: validStart,
+                  lineEnd: validEnd,
+                },
+              }
+            : {}),
         }
       }
     }
@@ -45,8 +65,10 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
 }
 
 export function analyzeRepository(ctx: AnalysisContext): AnalysisResult {
+  const staticFindings = analyzeStaticSecurity(ctx)
   const allFindings = [
-    ...checkSecurity(ctx),
+    ...checkSecurity(ctx, staticFindings),
+    ...staticFindings,
     ...checkTestingCi(ctx),
     ...checkDependencies(ctx),
     ...checkStructure(ctx),

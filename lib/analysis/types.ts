@@ -1,4 +1,4 @@
-import type { Finding, RepoFile } from '../types/report'
+import type { Finding, RepoFile, FindingSecurity } from '../types/report'
 import type { ExtractedFile } from '../github/extract'
 import type { GitHubRepoMeta } from '../github/client'
 
@@ -25,6 +25,7 @@ export interface AnalysisFinding extends Finding {
   lineStart?: number
   lineEnd?: number
   githubPermaUrl?: string
+  security?: FindingSecurity
 }
 
 export type CheckFn = (ctx: AnalysisContext) => AnalysisFinding[]

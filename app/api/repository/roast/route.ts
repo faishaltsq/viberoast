@@ -9,6 +9,7 @@ import { scanSecurityFiles } from '@/lib/github/security-scan'
 import { type RepoScanResult, intensitySchema, languageSchema, type RoastReport, type Commentary } from '@/lib/types/report'
 import { analyzeRepository, validateFinding } from '@/lib/analysis/repository'
 import { checkSecurity } from '@/lib/analysis/checks/security'
+import { scanStaticSecurity } from '@/lib/security/static'
 import { deduplicateFindings } from '@/lib/analysis/deduplicate'
 import { generateRepoRoast } from '@/lib/ai/deepseek'
 import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '@/lib/server/http'
@@ -142,7 +143,11 @@ export async function POST(request: Request): Promise<Response> {
       contentTruncated: securityScan.coverage.contentTruncated,
       sensitiveValues,
     }
-    const rawSecFindings = checkSecurity(secCtx).map((f) => validateFinding(f, secCtx))
+    const staticScan = scanStaticSecurity(secCtx)
+    const rawSecFindings = [
+      ...checkSecurity(secCtx, staticScan.findings),
+      ...staticScan.findings,
+    ].map((f) => validateFinding(f, secCtx))
     const dedupedSecFindings = deduplicateFindings(rawSecFindings)
     const severityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
     const verificationOrder: Record<string, number> = { verified: 0, heuristic: 1, inconclusive: 2 }
@@ -157,7 +162,7 @@ export async function POST(request: Request): Promise<Response> {
     const securityFindings = sortedSecFindings.slice(0, 100)
     const omittedSecurityFindings = Math.max(0, totalSecurityFindings - securityFindings.length)
 
-    // Append scope warnings for tree truncation, deadline exhaustion, or unavailable files
+    // Append scope warnings for tree truncation, deadline exhaustion, unavailable files, or static AST parsing limitations
     const combinedWarnings = [...analysis.warnings]
     if (treeTruncated && !combinedWarnings.some((w) => w.includes('2,000 files'))) {
       combinedWarnings.push('Repository tree truncated at 2,000 files; security coverage of remaining files is unknown.')
@@ -167,6 +172,13 @@ export async function POST(request: Request): Promise<Response> {
     }
     if (securityScan.coverage.statusCounts.unavailable > 0 && !combinedWarnings.some((w) => w.includes('unavailable during security scan'))) {
       combinedWarnings.push(`${securityScan.coverage.statusCounts.unavailable} file(s) unavailable during security scan.`)
+    }
+    if (staticScan.coverage.scopeWarnings) {
+      for (const w of staticScan.coverage.scopeWarnings) {
+        if (!combinedWarnings.includes(w)) {
+          combinedWarnings.push(w)
+        }
+      }
     }
 
     // Project safe scan metadata without source content before AI model call
@@ -205,6 +217,7 @@ export async function POST(request: Request): Promise<Response> {
           omitted: omittedSecurityFindings,
         },
       },
+      staticCoverage: staticScan.coverage,
       findings: analysis.findings,
       securityFindings,
       totalSecurityFindings,

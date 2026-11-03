@@ -1,15 +1,20 @@
 import {
   findingSchema,
+  findingSecuritySchema,
   commentarySchema,
   repoReportSchema,
   repoScanSchema,
   securityCoverageSchema,
+  staticCoverageSchema,
   type Commentary,
   type Finding,
+  type FindingSecurity,
   type RepoScanResult,
   type RepositoryReport,
   type SecurityCoverage,
   type SecurityContentStatus,
+  type StaticCoverage,
+  type StaticContentStatus,
 } from '@/lib/types/report'
 import { redactSecrets } from './redact'
 
@@ -53,6 +58,44 @@ export function sanitizeObject<T>(value: T, sensitiveValues?: readonly string[])
   return value
 }
 
+function sanitizeFindingSecurity(
+  raw: unknown,
+  sensitiveValues?: readonly string[]
+): FindingSecurity | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined
+  const s = raw as Record<string, unknown>
+  if (typeof s.ruleId !== 'string' || typeof s.commitSha !== 'string') return undefined
+
+  const rawSha = typeof s.commitSha === 'string' ? s.commitSha.trim().toLowerCase() : ''
+  if (!/^[0-9a-fA-F]{40}$/.test(rawSha)) return undefined
+
+  const lineStart =
+    typeof s.lineStart === 'number' && Number.isFinite(s.lineStart) && s.lineStart > 0
+      ? Math.floor(s.lineStart)
+      : undefined
+  const lineEnd =
+    typeof s.lineEnd === 'number' && Number.isFinite(s.lineEnd) && s.lineEnd > 0
+      ? Math.floor(s.lineEnd)
+      : undefined
+
+  const projectedSec = {
+    category: cleanString(s.category, 100, sensitiveValues, 'Security'),
+    ruleId: cleanString(s.ruleId, 100, sensitiveValues),
+    ruleVersion: cleanString(s.ruleVersion, 50, sensitiveValues, '1.0.0'),
+    commitSha: rawSha,
+    ...(typeof s.filePath === 'string' && s.filePath.trim() !== ''
+      ? { filePath: cleanString(s.filePath, 500, sensitiveValues) }
+      : {}),
+    ...(lineStart !== undefined ? { lineStart } : {}),
+    ...(lineEnd !== undefined ? { lineEnd } : {}),
+    observation: cleanString(s.observation, 1600, sensitiveValues),
+    possibleImpact: cleanString(s.possibleImpact, 1600, sensitiveValues),
+    coverageLimitations: cleanString(s.coverageLimitations, 1600, sensitiveValues),
+  }
+
+  return findingSecuritySchema.parse(projectedSec)
+}
+
 function sanitizeFinding(raw: unknown, sensitiveValues?: readonly string[]): Finding {
   if (typeof raw !== 'object' || raw === null) {
     throw new Error('Invalid finding data')
@@ -69,6 +112,8 @@ function sanitizeFinding(raw: unknown, sensitiveValues?: readonly string[]): Fin
         .filter(Boolean)
     : []
 
+  const security = f.security ? sanitizeFindingSecurity(f.security, sensitiveValues) : undefined
+
   const projected = {
     id: cleanString(f.id, 100, sensitiveValues),
     category: f.category,
@@ -81,6 +126,7 @@ function sanitizeFinding(raw: unknown, sensitiveValues?: readonly string[]): Fin
     recommendation: cleanString(f.recommendation, 1600, sensitiveValues),
     source: f.source,
     verification: f.verification,
+    ...(security ? { security } : {}),
   }
 
   return findingSchema.parse(projected)
@@ -272,6 +318,63 @@ function sanitizeSecurityCoverage(
   return securityCoverageSchema.parse(projected)
 }
 
+function sanitizeStaticCoverage(
+  raw: unknown,
+  sensitiveValues?: readonly string[]
+): StaticCoverage {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Invalid static coverage data')
+  }
+  const c = raw as Record<string, unknown>
+  const rawFileStatuses = Array.isArray(c.fileStatuses) ? c.fileStatuses : []
+  const fileStatuses = rawFileStatuses.slice(0, 2000).map((item) => {
+    if (typeof item !== 'object' || item === null) throw new Error('Invalid file status')
+    const it = item as Record<string, unknown>
+    return {
+      path: cleanString(it.path, 500, sensitiveValues),
+      status: it.status as StaticContentStatus,
+      ...(typeof it.syntaxKind === 'string'
+        ? { syntaxKind: cleanString(it.syntaxKind, 50, sensitiveValues) }
+        : {}),
+      ...(typeof it.parseDiagnosticsCount === 'number' && Number.isFinite(it.parseDiagnosticsCount)
+        ? { parseDiagnosticsCount: Math.max(0, Math.floor(it.parseDiagnosticsCount)) }
+        : {}),
+      ...(typeof it.reason === 'string'
+        ? { reason: cleanString(it.reason, 500, sensitiveValues) }
+        : {}),
+    }
+  })
+
+  const rawWarnings = Array.isArray(c.scopeWarnings) ? c.scopeWarnings : []
+  const scopeWarnings = rawWarnings
+    .slice(0, 50)
+    .map((w) => cleanString(w, 500, sensitiveValues))
+    .filter(Boolean)
+
+  const projected = {
+    filesAttempted:
+      typeof c.filesAttempted === 'number' && Number.isFinite(c.filesAttempted)
+        ? Math.max(0, Math.floor(c.filesAttempted))
+        : 0,
+    filesParsed:
+      typeof c.filesParsed === 'number' && Number.isFinite(c.filesParsed)
+        ? Math.max(0, Math.floor(c.filesParsed))
+        : 0,
+    filesPartial:
+      typeof c.filesPartial === 'number' && Number.isFinite(c.filesPartial)
+        ? Math.max(0, Math.floor(c.filesPartial))
+        : 0,
+    filesUnsupported:
+      typeof c.filesUnsupported === 'number' && Number.isFinite(c.filesUnsupported)
+        ? Math.max(0, Math.floor(c.filesUnsupported))
+        : 0,
+    fileStatuses,
+    ...(scopeWarnings.length > 0 ? { scopeWarnings } : {}),
+  }
+
+  return staticCoverageSchema.parse(projected)
+}
+
 export function toPublicRepositoryScan(
   scan: unknown,
   sensitiveValues?: readonly string[]
@@ -371,6 +474,10 @@ export function toPublicRepositoryScan(
     ? sanitizeSecurityCoverage(s.securityCoverage, sensitiveValues)
     : undefined
 
+  const staticCoverage = s.staticCoverage !== undefined && s.staticCoverage !== null
+    ? sanitizeStaticCoverage(s.staticCoverage, sensitiveValues)
+    : undefined
+
   const strengths = (Array.isArray(s.strengths) ? s.strengths : [])
     .slice(0, 12)
     .map(str => cleanString(str, 500, sensitiveValues))
@@ -402,6 +509,7 @@ export function toPublicRepositoryScan(
     ...(totalSecurityFindings !== undefined ? { totalSecurityFindings } : {}),
     ...(omittedSecurityFindings !== undefined ? { omittedSecurityFindings } : {}),
     ...(securityCoverage ? { securityCoverage } : {}),
+    ...(staticCoverage ? { staticCoverage } : {}),
     strengths,
     warnings,
     evidenceSummary,

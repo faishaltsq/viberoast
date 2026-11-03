@@ -6,6 +6,20 @@ export const reactionSchema = z.enum(['idle', 'suspicious', 'analyzing', 'shocke
 
 const repoCategories = ['UI', 'UX', 'Accessibility', 'Performance', 'Functionality', 'Security', 'SEO', 'Code Quality', 'Git Hygiene', 'Dependencies', 'Architecture', 'Tests'] as const
 
+export const findingSecuritySchema = z.object({
+  category: z.string().max(100),
+  ruleId: z.string().min(1).max(100),
+  ruleVersion: z.string().min(1).max(50),
+  commitSha: z.string().length(40),
+  filePath: z.string().min(1).max(500).optional(),
+  lineStart: z.number().int().positive().optional(),
+  lineEnd: z.number().int().positive().optional(),
+  observation: z.string().max(1600),
+  possibleImpact: z.string().max(1600),
+  coverageLimitations: z.string().max(1600),
+})
+export type FindingSecurity = z.infer<typeof findingSecuritySchema>
+
 export const findingSchema = z.object({
   id: z.string().min(1).max(100),
   category: z.enum(repoCategories),
@@ -18,6 +32,7 @@ export const findingSchema = z.object({
   recommendation: z.string().max(1600),
   source: z.enum(['dom', 'browser', 'metadata', 'timing', 'repository']),
   verification: z.enum(['verified', 'heuristic', 'inconclusive']),
+  security: findingSecuritySchema.optional(),
 })
 export type Finding = z.infer<typeof findingSchema>
 
@@ -130,6 +145,33 @@ export const securityCoverageSchema = z.object({
 })
 export type SecurityCoverage = z.infer<typeof securityCoverageSchema>
 
+export const staticContentStatusSchema = z.enum([
+  'supported',
+  'parsed',
+  'partial',
+  'unsupported',
+])
+export type StaticContentStatus = z.infer<typeof staticContentStatusSchema>
+
+export const staticFileStatusSchema = z.object({
+  path: z.string().min(1).max(500),
+  status: staticContentStatusSchema,
+  syntaxKind: z.string().max(50).optional(),
+  parseDiagnosticsCount: z.number().int().nonnegative().optional(),
+  reason: z.string().max(500).optional(),
+})
+export type StaticFileStatus = z.infer<typeof staticFileStatusSchema>
+
+export const staticCoverageSchema = z.object({
+  filesAttempted: z.number().int().nonnegative(),
+  filesParsed: z.number().int().nonnegative(),
+  filesPartial: z.number().int().nonnegative(),
+  filesUnsupported: z.number().int().nonnegative(),
+  fileStatuses: z.array(staticFileStatusSchema).max(2000),
+  scopeWarnings: z.array(z.string().max(500)).max(50).optional(),
+})
+export type StaticCoverage = z.infer<typeof staticCoverageSchema>
+
 export const repoScanSchema = z.object({
   owner: z.string().min(1).max(100),
   repo: z.string().min(1).max(100),
@@ -155,6 +197,7 @@ export const repoScanSchema = z.object({
   totalSecurityFindings: z.number().int().nonnegative().optional(),
   omittedSecurityFindings: z.number().int().nonnegative().optional(),
   securityCoverage: securityCoverageSchema.optional(),
+  staticCoverage: staticCoverageSchema.optional(),
   strengths: z.array(z.string().max(500)).max(12),
   warnings: z.array(z.string().max(500)).max(20),
   evidenceSummary: z.string().max(16_000),

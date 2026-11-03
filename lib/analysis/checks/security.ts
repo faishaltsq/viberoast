@@ -1,5 +1,6 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
 import { redactUrl, detectSecrets, getRulePriority, type SecretCandidate } from '../../security/redact'
+import { analyzeStaticSecurity } from '../../security/static'
 
 function fnv1a32(str: string): string {
   let hash = 0x811c9dc5
@@ -19,7 +20,10 @@ function buildTrackedFileId(rulePrefix: string, filePath: string): string {
   return slug ? `${rulePrefix}-${slug}-${pathHash}` : `${rulePrefix}-${pathHash}`
 }
 
-export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
+export function checkSecurity(
+  ctx: AnalysisContext,
+  staticFindings?: readonly AnalysisFinding[]
+): AnalysisFinding[] {
   const findings: AnalysisFinding[] = []
   const { owner, repo, sha, tree, files, sensitiveValues } = ctx
 
@@ -118,6 +122,23 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
       verification: 'verified',
       filePath: entry.path,
       githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${entry.path}`, sensitiveValues),
+      security: {
+        category: 'Security',
+        ruleId: isEnvFile
+          ? 'sec.committed-env-file'
+          : isKeyFile
+            ? 'sec.tracked-key-file'
+            : 'sec.tracked-credential-file',
+        ruleVersion: '1.0.0',
+        commitSha: sha,
+        filePath: entry.path,
+        observation: description,
+        possibleImpact: hasVerifiedSecrets
+          ? 'Potential credential exposure observed in tracked configuration; active/revoked status unknown and provider privileges not established.'
+          : 'Potential exposure of sensitive configuration or cryptographic key metadata in git repository tree.',
+        coverageLimitations:
+          'Filename-only inspection from git tree; repository history and uncommitted files not inspected.',
+      },
     })
   }
 
@@ -237,41 +258,30 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
         lineStart: candidate.lineStart,
         lineEnd: candidate.lineEnd,
         githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
+        security: {
+          category: 'Security',
+          ruleId: candidate.ruleId,
+          ruleVersion: '1.0.0',
+          commitSha: sha,
+          filePath: file.path,
+          lineStart: candidate.lineStart,
+          lineEnd: candidate.lineEnd,
+          observation: `${candidate.ruleId} pattern observed at lines ${candidate.lineStart}-${candidate.lineEnd}; value redacted. Validity not tested.`,
+          possibleImpact:
+            'Potential exposure of credential pattern; validity not verified, active/revoked status unknown, and provider permissions not established.',
+          coverageLimitations:
+            'Pattern detection in admitted file content; credential active status or revocation not queried.',
+        },
       })
     }
   }
 
-  // 3. Dangerous dynamic evaluation (eval, Function constructor)
-  for (const file of files) {
-    if (file.path.includes('.test.') || file.path.includes('.min.')) continue
-    const lines = file.content.split('\n')
-    for (let idx = 0; idx < lines.length; idx++) {
-      const line = lines[idx]
-      if (line.trim().startsWith('//')) continue
-      if (/\beval\s*\(/.test(line) || /\bnew\s+Function\s*\(/.test(line)) {
-        const lineNum = idx + 1
-        const cleanPath = file.path.replace(/[^A-Za-z0-9]/g, '-')
-        findings.push({
-          id: `sec-dynamic-eval-${cleanPath}-${lineNum}`.slice(0, 100),
-          category: 'Security',
-          title: `Dynamic code evaluation in ${file.path}:${lineNum}`,
-          description: 'Use of `eval()` or `new Function()` allows arbitrary code execution and introduces injection vulnerabilities.',
-          severity: 'high',
-          confidence: 'high',
-          evidence: [file.truncated ? '[source evidence omitted: file content truncated]' : `Dynamic evaluation syntax observed at line ${lineNum}; source arguments withheld.`],
-          location: `${file.path}:${lineNum}`,
-          recommendation: 'Refactor dynamic execution to use safe parsers or structured lookup dictionaries.',
-          source: 'repository',
-          verification: 'verified',
-          filePath: file.path,
-          lineStart: lineNum,
-          lineEnd: lineNum,
-          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
-        })
-        break
-      }
-    }
-  }
+  // 3. Dynamic evaluation (AST-backed syntax analysis)
+  const resolvedStaticFindings = staticFindings ?? analyzeStaticSecurity(ctx)
+  const evalFindings = resolvedStaticFindings.filter(
+    (f) => f.security?.ruleId === 'js.dynamic-execution'
+  )
+  findings.push(...evalFindings)
 
   return findings
 }
