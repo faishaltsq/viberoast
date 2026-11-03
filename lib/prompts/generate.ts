@@ -144,7 +144,7 @@ export function generatePrompt(report: RoastReport, options: PromptOptions): str
         evidence: finding.evidence.map(redactSecrets),
         recommendation: redactSecrets(finding.recommendation),
         ...(detail === 'detailed' ? { description: redactSecrets(finding.description) } : {}),
-        githubPermaUrl: `https://github.com/${scan.owner}/${scan.repo}/blob/${scan.sha}/${finding.location.split(':')[0]}`,
+        githubPermaUrl: redactUrl(`https://github.com/${scan.owner}/${scan.repo}/blob/${scan.sha}/${finding.location.split(':')[0]}`),
       })),
     }
 

@@ -1,8 +1,9 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
   const findings: AnalysisFinding[] = []
-  const { owner, repo, sha, files } = ctx
+  const { owner, repo, sha, files, sensitiveValues } = ctx
 
   for (const file of files) {
     if (file.path.includes('.min.') || file.path.includes('.test.') || file.path.includes('.spec.')) continue
@@ -25,10 +26,12 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
           description: `An empty catch block silently ignores runtime exceptions without logging, metrics, or error propagation.`,
           severity: 'high',
           confidence: 'high',
-          evidence: [
-            line.trim(),
-            twoLineCatch ? lines[idx + 1].trim() : '',
-          ].filter(Boolean),
+          evidence: file.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : [
+                safeSnippet(line.trim(), 120, sensitiveValues),
+                twoLineCatch ? safeSnippet(lines[idx + 1].trim(), 120, sensitiveValues) : '',
+              ].filter(Boolean),
           location: `${file.path}:${lineNum}`,
           recommendation: 'Log the caught error or explicitly re-throw it to prevent hidden failures.',
           source: 'repository',
@@ -36,7 +39,7 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
           filePath: file.path,
           lineStart: lineNum,
           lineEnd: twoLineCatch ? lineNum + 1 : lineNum,
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
         })
       }
     }
@@ -60,7 +63,9 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
           description: `Found ${anyMatches.length} uses of \`any\` in TypeScript code, bypassing compile-time safety and disabling type checking.`,
           severity: 'medium',
           confidence: 'high',
-          evidence: anyMatches.slice(0, 3).map((lineNum) => `Line ${lineNum}: ${lines[lineNum - 1]?.trim().slice(0, 120)}`),
+          evidence: file.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : anyMatches.slice(0, 3).map((lineNum) => `Line ${lineNum}: ${safeSnippet(lines[lineNum - 1]?.trim() || '', 120, sensitiveValues)}`),
           location: `${file.path}:${anyMatches[0]}`,
           recommendation: 'Replace `any` with specific interfaces, generics, or `unknown` with type narrowing.',
           source: 'repository',
@@ -68,7 +73,7 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
           filePath: file.path,
           lineStart: anyMatches[0],
           lineEnd: anyMatches[anyMatches.length - 1],
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${anyMatches[0]}`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${anyMatches[0]}`, sensitiveValues),
         })
       }
     }
@@ -90,7 +95,9 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
         description: `Found multiple TODO or FIXME comments in source code, indicating deferred bug fixes or incomplete implementations.`,
         severity: 'low',
         confidence: 'high',
-        evidence: todoMatches.slice(0, 3).map((l) => `Line ${l}: ${lines[l - 1]?.trim().slice(0, 120)}`),
+        evidence: file.truncated
+          ? ['[source evidence omitted: file content truncated]']
+          : todoMatches.slice(0, 3).map((l) => `Line ${l}: ${safeSnippet(lines[l - 1]?.trim() || '', 120, sensitiveValues)}`),
         location: `${file.path}:${todoMatches[0]}`,
         recommendation: 'Convert lingering inline TODOs into tracked GitHub issues or complete the intended changes.',
         source: 'repository',
@@ -98,7 +105,7 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
         filePath: file.path,
         lineStart: todoMatches[0],
         lineEnd: todoMatches[todoMatches.length - 1],
-        githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${todoMatches[0]}`,
+        githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${todoMatches[0]}`, sensitiveValues),
       })
     }
 
@@ -118,7 +125,9 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
             description: `Detected hardcoded local endpoint \`${match[1]}\` in application code. This will fail when deployed to production environments.`,
             severity: 'medium',
             confidence: 'high',
-            evidence: [`Line ${lineNum}: ${line.trim().slice(0, 140)}`],
+            evidence: file.truncated
+              ? ['[source evidence omitted: file content truncated]']
+              : [`Line ${lineNum}: ${safeSnippet(line.trim(), 140, sensitiveValues)}`],
             location: `${file.path}:${lineNum}`,
             recommendation: 'Use environment variables (e.g. `NEXT_PUBLIC_API_URL` or `API_BASE_URL`) rather than hardcoded localhost strings.',
             source: 'repository',
@@ -126,7 +135,7 @@ export function checkMaintainability(ctx: AnalysisContext): AnalysisFinding[] {
             filePath: file.path,
             lineStart: lineNum,
             lineEnd: lineNum,
-            githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`,
+            githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
           })
           break // one localhost per file is enough
         }

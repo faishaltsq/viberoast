@@ -1,5 +1,6 @@
 import type { AnalysisContext, AnalysisResult } from './types'
 import type { Finding } from '../types/report'
+import { safeSnippet } from '../security/redact'
 import { checkStructure } from './checks/structure'
 import { checkMaintainability } from './checks/maintainability'
 import { checkTestingCi } from './checks/testing-ci'
@@ -66,7 +67,7 @@ export function analyzeRepository(ctx: AnalysisContext): AnalysisResult {
       ? `Identified ${prioritized.length} key observations across ${new Set(prioritized.map((f) => f.category)).size} categories.`
       : 'No critical architectural, security, or hygiene defects detected in inspected files.',
     warnings.length > 0 ? warnings.join(' ') : '',
-  ].filter(Boolean).join(' ')
+  ].filter(Boolean).map((s) => safeSnippet(s, 1000, ctx.sensitiveValues)).join(' ')
 
   return {
     findings: prioritized,

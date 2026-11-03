@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { errorResponse, HttpError, json } from '../../../../../lib/server/http'
 import { getReport, isServerless } from '../../../../../lib/server/store'
 import { isRepositoryReport } from '../../../../../lib/types/report'
+import { toPublicRepositoryReport } from '../../../../../lib/security/public-report'
 
 export const runtime = 'nodejs'
 
@@ -22,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
     if (!isRepositoryReport(report)) {
       throw new HttpError(404, 'REPORT_EXPIRED', 'This private report is unavailable.')
     }
-    return json(report)
+    return json(toPublicRepositoryReport(report))
   } catch (error) {
     return errorResponse(error)
   }

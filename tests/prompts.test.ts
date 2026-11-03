@@ -153,7 +153,7 @@ describe('deterministic implementation prompts', () => {
             { path: 'package.json', type: 'file', size: 300 },
           ],
           selectedFiles: [
-            { path: 'src/index.ts', size: 120, content: 'export const x = 1;', truncated: false },
+            { path: 'src/index.ts', size: 120, truncated: false },
           ],
           coverage: {
             filesDiscovered: 2,

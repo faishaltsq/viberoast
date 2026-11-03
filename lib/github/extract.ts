@@ -1,11 +1,19 @@
 import type { RepoFile } from '../types/report'
 import { fetchFileContent } from './client'
+import { collectSensitiveValues } from '../security/redact'
 
 export interface ExtractedFile {
   path: string
   size: number
   content: string
   truncated: boolean
+}
+
+export interface ExtractResult {
+  files: ExtractedFile[]
+  bytesInspected: number
+  contentTruncated: boolean
+  unclippedSensitiveValues?: string[]
 }
 
 function decodeContent(rawContent: string, encoding?: string): string {
@@ -43,14 +51,11 @@ export async function extractFiles(
   maxBytesTotal: number = 262_144,
   maxBytesPerFile: number = 32_768,
   signal?: AbortSignal
-): Promise<{
-  files: ExtractedFile[]
-  bytesInspected: number
-  contentTruncated: boolean
-}> {
+): Promise<ExtractResult> {
   let bytesInspected = 0
   let contentTruncated = false
   const extractedFiles: ExtractedFile[] = []
+  const unclippedSensitiveValues = new Set<string>()
 
   const timeoutController = new AbortController()
   const timer = setTimeout(() => {
@@ -75,8 +80,21 @@ export async function extractFiles(
 
       linkedSignal.throwIfAborted()
 
-      let content = decodeContent(res.content ?? '', (res as { encoding?: string }).encoding)
-      const decodedByteLength = Buffer.byteLength(content, 'utf8')
+      // Direct-union preharvested sensitive values from client decode boundary
+      if (res.unclippedSensitiveValues && res.unclippedSensitiveValues.length > 0) {
+        for (const val of res.unclippedSensitiveValues) {
+          unclippedSensitiveValues.add(val)
+        }
+      }
+
+      const fullDecoded = decodeContent(res.content ?? '', (res as { encoding?: string }).encoding)
+      // Harvest sensitive values request-locally on the full admitted content before clipping
+      const capturedSecrets = collectSensitiveValues([fullDecoded])
+      for (const val of capturedSecrets) {
+        unclippedSensitiveValues.add(val)
+      }
+
+      const decodedByteLength = Buffer.byteLength(fullDecoded, 'utf8')
       const originalSize = Math.max(
         typeof res.size === 'number' ? res.size : 0,
         typeof file.size === 'number' ? file.size : 0,
@@ -84,10 +102,15 @@ export async function extractFiles(
       )
 
       let isFileTruncated = Boolean(res.truncated) || originalSize > maxBytesPerFile || decodedByteLength > maxBytesPerFile
+      let content = fullDecoded
 
       if (decodedByteLength > maxBytesPerFile) {
-        const buf = Buffer.from(content, 'utf8')
-        content = buf.subarray(0, maxBytesPerFile).toString('utf8')
+        const buf = Buffer.from(fullDecoded, 'utf8')
+        let truncatedStr = buf.subarray(0, maxBytesPerFile).toString('utf8')
+        if (/[\uD800-\uDBFF]$/.test(truncatedStr)) {
+          truncatedStr = truncatedStr.slice(0, -1)
+        }
+        content = truncatedStr
         isFileTruncated = true
       }
 
@@ -105,6 +128,10 @@ export async function extractFiles(
       })
 
       if (bytesInspected >= maxBytesTotal) {
+        const fileIdx = files.indexOf(file)
+        if (fileIdx < files.length - 1 && files.slice(fileIdx + 1).some((f) => f.type !== 'dir')) {
+          contentTruncated = true
+        }
         break
       }
     }
@@ -113,6 +140,7 @@ export async function extractFiles(
       files: extractedFiles,
       bytesInspected,
       contentTruncated,
+      unclippedSensitiveValues: Array.from(unclippedSensitiveValues),
     }
   } finally {
     clearTimeout(timer)

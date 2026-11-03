@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import { parseGitHubUrl } from '@/lib/github/parse-url'
-import { fetchRepoMeta, fetchFileContent } from '@/lib/github/client'
+import { fetchRepoMeta } from '@/lib/github/client'
 import { fetchTree } from '@/lib/github/tree'
 import { selectFiles } from '@/lib/github/select-files'
 import { extractFiles } from '@/lib/github/extract'
@@ -10,6 +10,8 @@ import { analyzeRepository } from '@/lib/analysis/repository'
 import { generateRepoRoast } from '@/lib/ai/deepseek'
 import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '@/lib/server/http'
 import { acquireScan, assertDeployment, reportExpiry, retainReport } from '@/lib/server/store'
+import { collectSensitiveValues } from '@/lib/security/redact'
+import { toPublicRepositoryReport, toPublicRepositoryScan } from '@/lib/security/public-report'
 
 export const runtime = 'nodejs'
 export const maxDuration = 160
@@ -83,8 +85,35 @@ export async function POST(request: Request): Promise<Response> {
     
     routeSignal.throwIfAborted()
     
-    // Build repository scan result
-    const repoScan: RepoScanResult = {
+    // Collect request-local sensitive values: direct union of pre-harvested unclipped values and raw scan inputs
+    const harvestedValues = collectSensitiveValues([
+      ...extraction.files.map(f => f.content),
+      meta.description,
+      parsed.owner,
+      parsed.repo,
+    ])
+    const sensitiveValues = Array.from(new Set([
+      ...(extraction.unclippedSensitiveValues ?? []),
+      ...harvestedValues,
+    ]))
+
+    const contentTruncated = Boolean(extraction.contentTruncated || extraction.files.some(f => f.truncated))
+
+    // Run repository analysis engine (internal source buffers remain internal)
+    const analysis = analyzeRepository({
+      owner: parsed.owner,
+      repo: parsed.repo,
+      sha,
+      tree,
+      files: extraction.files,
+      meta,
+      treeTruncated,
+      contentTruncated,
+      sensitiveValues,
+    })
+
+    // Project safe scan metadata without source content before AI model call
+    const rawScan = {
       owner: parsed.owner,
       repo: parsed.repo,
       sha,
@@ -96,55 +125,46 @@ export async function POST(request: Request): Promise<Response> {
       commitDate: null,
       commitMessage: null,
       tree: selected.selected.map(f => ({ path: f.path, type: f.type, size: f.size })),
-      selectedFiles: extraction.files.map(f => ({ path: f.path, size: f.size, content: f.content, truncated: f.truncated })),
+      selectedFiles: extraction.files.map(f => ({
+        path: f.path,
+        size: f.size,
+        truncated: f.truncated,
+        inspectedBytes: Buffer.byteLength(f.content, 'utf8'),
+      })),
       coverage: {
         filesDiscovered: tree.length,
         filesInspected: extraction.files.length,
         bytesInspected: extraction.bytesInspected,
-        treeTruncated: treeTruncated,
-        contentTruncated: extraction.contentTruncated,
+        treeTruncated,
+        contentTruncated,
       },
-      findings: [],
-      strengths: [],
-      warnings: [],
-      evidenceSummary: '',
+      findings: analysis.findings,
+      strengths: analysis.strengths,
+      warnings: analysis.warnings,
+      evidenceSummary: analysis.evidenceSummary,
     }
 
-    // Run repository analysis engine
-    const analysis = analyzeRepository({
-      owner: parsed.owner,
-      repo: parsed.repo,
-      sha,
-      tree,
-      files: extraction.files,
-      meta,
-      treeTruncated,
-      contentTruncated: extraction.contentTruncated,
-    })
-    repoScan.findings = analysis.findings
-    repoScan.strengths = analysis.strengths
-    repoScan.warnings = analysis.warnings
-    repoScan.evidenceSummary = analysis.evidenceSummary
-    
-    // Generate AI roast
+    const safeRepoScan: RepoScanResult = toPublicRepositoryScan(rawScan, sensitiveValues)
+
+    // Generate AI roast with safe projected scan (never receives raw source content)
     let commentary: Commentary | null = null
     try {
-      const generated = await generateRepoRoast(repoScan, input, routeSignal)
+      const generated = await generateRepoRoast(safeRepoScan, input, routeSignal)
       commentary = generated.commentary
     } catch (error) {
       if (routeSignal.aborted) throw error
     }
-    
+
     routeSignal.throwIfAborted()
-    
-    // Retain repository report
-    const report: RoastReport = {
+
+    // Build and sanitize final repository report before retention and response
+    const rawReport: RoastReport = {
       id: randomUUID(),
       expiresAt: reportExpiry(),
       language: input.language,
       intensity: input.intensity,
       scanKind: 'repository',
-      repoScan,
+      repoScan: safeRepoScan,
       commentary,
       aiStatus: commentary ? 'completed' : 'unavailable',
       aiMessage: commentary ? null : input.language === 'id'
@@ -152,9 +172,10 @@ export async function POST(request: Request): Promise<Response> {
         : 'Scanner evidence is available, but AI commentary is unavailable.',
       visualAnalysis: false,
     }
-    
-    const storedReport = retainReport(report)
-    outcome = report.aiStatus === 'unavailable' ? 'scanner_only' : 'completed'
+
+    const safeReport = toPublicRepositoryReport(rawReport, sensitiveValues)
+    const storedReport = retainReport(safeReport)
+    outcome = safeReport.aiStatus === 'unavailable' ? 'scanner_only' : 'completed'
     return json(storedReport)
     
   } catch (error) {

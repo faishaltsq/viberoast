@@ -1,4 +1,5 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 const LOW_EFFORT_MESSAGES = new Set([
   'update', 'fix', 'fixes', 'wip', 'commit', '.', 'asdf', 'test',
@@ -36,13 +37,15 @@ export function checkGitDx(ctx: AnalysisContext): AnalysisFinding[] {
         description: `The README file is only ${readmeFile.content.trim().length} characters long, providing virtually no documentation for users or contributors.`,
         severity: 'low',
         confidence: 'high',
-        evidence: [`Content: "${readmeFile.content.trim()}"`],
+        evidence: readmeFile.truncated
+          ? ['[source evidence omitted: file content truncated]']
+          : [`Content: "${safeSnippet(readmeFile.content.trim(), 200, ctx.sensitiveValues)}"`],
         location: readmeFile.path,
         recommendation: 'Expand README with setup instructions, usage examples, and architecture overview.',
         source: 'repository',
         verification: 'verified',
         filePath: readmeFile.path,
-        githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${readmeFile.path}`,
+        githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${readmeFile.path}`, ctx.sensitiveValues),
       })
     }
   }
@@ -62,7 +65,7 @@ export function checkGitDx(ctx: AnalysisContext): AnalysisFinding[] {
       recommendation: 'Add a standard `.gitignore` suited to your programming language and framework ecosystem.',
       source: 'repository',
       verification: 'verified',
-      githubPermaUrl: `https://github.com/${owner}/${repo}/tree/${sha}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/tree/${sha}`, ctx.sensitiveValues),
     })
   }
 
@@ -81,7 +84,7 @@ export function checkGitDx(ctx: AnalysisContext): AnalysisFinding[] {
       recommendation: 'Add an open-source license (such as MIT, Apache 2.0, or BSD) to clarify usage terms.',
       source: 'repository',
       verification: 'verified',
-      githubPermaUrl: `https://github.com/${owner}/${repo}/tree/${sha}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/tree/${sha}`, ctx.sensitiveValues),
     })
   }
 
@@ -92,16 +95,16 @@ export function checkGitDx(ctx: AnalysisContext): AnalysisFinding[] {
       findings.push({
         id: 'dx-low-effort-commit',
         category: 'Git Hygiene',
-        title: `Low-effort commit message: "${meta.commitMessage}"`,
-        description: `The latest commit message \`"${meta.commitMessage}"\` is generic and fails to explain what changed or why.`,
+        title: `Low-effort commit message: "${safeSnippet(meta.commitMessage, 100, ctx.sensitiveValues)}"`,
+        description: `The latest commit message \`"${safeSnippet(meta.commitMessage, 100, ctx.sensitiveValues)}"\` is generic and fails to explain what changed or why.`,
         severity: 'low',
         confidence: 'high',
-        evidence: [`Latest commit SHA ${sha.slice(0, 7)}: "${meta.commitMessage}"`],
+        evidence: [`Latest commit SHA ${sha.slice(0, 7)}: "${safeSnippet(meta.commitMessage || '', 100, ctx.sensitiveValues)}"`],
         location: `commit:${sha.slice(0, 7)}`,
         recommendation: 'Write descriptive commit messages explaining the problem solved and the rationale.',
         source: 'repository',
         verification: 'verified',
-        githubPermaUrl: `https://github.com/${owner}/${repo}/commit/${sha}`,
+        githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/commit/${sha}`, ctx.sensitiveValues),
       })
     }
   }

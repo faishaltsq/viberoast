@@ -20,7 +20,7 @@ function createSampleScan(): RepoScanResult {
       { path: 'package.json', type: 'file', size: 200 },
     ],
     selectedFiles: [
-      { path: 'src/index.ts', size: 100, content: 'console.log("hello")', truncated: false },
+      { path: 'src/index.ts', size: 100, truncated: false },
     ],
     coverage: {
       filesDiscovered: 2,

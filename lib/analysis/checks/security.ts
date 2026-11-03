@@ -1,5 +1,5 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
-import { redactSecrets } from '../../security/redact'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp; severity: 'high' | 'medium' }> = [
   { name: 'AWS Access Key', pattern: /\bAKIA[0-9A-Z]{16}\b/, severity: 'high' },
@@ -11,7 +11,7 @@ const SECRET_PATTERNS: Array<{ name: string; pattern: RegExp; severity: 'high' |
 
 export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
   const findings: AnalysisFinding[] = []
-  const { owner, repo, sha, tree, files } = ctx
+  const { owner, repo, sha, tree, files, sensitiveValues } = ctx
 
   // 1. Committed sensitive environment files (.env, .env.local, .env.production)
   const envFiles = tree.filter((entry) =>
@@ -38,7 +38,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
       source: 'repository',
       verification: 'verified',
       filePath: sample.path,
-      githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${sample.path}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${sample.path}`, sensitiveValues),
     })
   }
 
@@ -60,7 +60,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
             description: `Found what appears to be a plaintext ${name} hardcoded directly into source code.`,
             severity,
             confidence: 'high',
-            evidence: [redactSecrets(line.trim().slice(0, 120))],
+            evidence: [safeSnippet(line.trim(), 120, sensitiveValues, file.truncated)],
             location: `${file.path}:${lineNum}`,
             recommendation: 'Revoke and rotate this secret immediately. Load secrets from runtime environment variables.',
             source: 'repository',
@@ -68,7 +68,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
             filePath: file.path,
             lineStart: lineNum,
             lineEnd: lineNum,
-            githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`,
+            githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
           })
           break
         }
@@ -93,7 +93,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
           description: 'Use of `eval()` or `new Function()` allows arbitrary code execution and introduces injection vulnerabilities.',
           severity: 'high',
           confidence: 'high',
-          evidence: [line.trim().slice(0, 120)],
+          evidence: [safeSnippet(line.trim(), 120, sensitiveValues, file.truncated)],
           location: `${file.path}:${lineNum}`,
           recommendation: 'Refactor dynamic execution to use safe parsers or structured lookup dictionaries.',
           source: 'repository',
@@ -101,7 +101,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
           filePath: file.path,
           lineStart: lineNum,
           lineEnd: lineNum,
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L${lineNum}`, sensitiveValues),
         })
         break
       }

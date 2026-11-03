@@ -141,6 +141,32 @@ describe('GitHub Client', () => {
     expect(result.truncated).toBe(true)
   })
 
+  it('harvests unclippedSensitiveValues from full decoded content before 32 KiB clipping', async () => {
+    const secret = 'CLIENT_PREHARVEST_SECRET_KEY_12345'
+    const padding = '// safe line padding\n'.repeat(1600) // ~33,600 bytes
+    const deepSecret = `const apiKey = "${secret}";\n`
+    const bigContent = `${padding}${deepSecret}`
+    const b64 = Buffer.from(bigContent, 'utf8').toString('base64')
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'file',
+          encoding: 'base64',
+          content: b64,
+          size: Buffer.byteLength(bigContent, 'utf8'),
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+
+    const result = await fetchFileContent('octocat', 'repo', 'deep.ts', 'sha-1')
+    expect(result.truncated).toBe(true)
+    expect(result.content).not.toContain(secret)
+    expect(result.unclippedSensitiveValues).toBeDefined()
+    expect(result.unclippedSensitiveValues).toContain(secret)
+  })
+
   it('aborts when signal is aborted', async () => {
     const controller = new AbortController()
     controller.abort()

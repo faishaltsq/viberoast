@@ -17,6 +17,7 @@ export interface AnalysisContext {
   meta?: AnalysisMeta
   treeTruncated?: boolean
   contentTruncated?: boolean
+  sensitiveValues?: readonly string[]
 }
 
 export interface AnalysisFinding extends Finding {

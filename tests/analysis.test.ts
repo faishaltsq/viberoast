@@ -279,6 +279,60 @@ describe('Repository Analysis Engine', () => {
       expect(secretFinding?.evidence[0]).toContain('[redacted]')
     })
 
+    it('redacts tokens crossing the 120-char evidence boundary before clipping without leaving split prefix fragments', () => {
+      const secretToken = 'AKIA1234567890ABCDEF' // 20 chars
+      // Position secret so that character 120 falls right inside the token
+      const fullLine = `${'a'.repeat(105)} = "${secretToken}" + "${'b'.repeat(30)}"`
+      const prefixFragment = secretToken.slice(0, 11) // e.g. 'AKIA1234567'
+
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/config.ts',
+            size: 500,
+            truncated: false,
+            content: `${fullLine}\n`,
+          },
+        ],
+        sensitiveValues: [secretToken],
+      })
+
+      const findings = checkSecurity(ctx)
+      const finding = findings.find((f) => f.id.includes('hardcoded-secret'))
+      expect(finding).toBeDefined()
+      expect(finding?.evidence[0].length).toBeLessThanOrEqual(120)
+      // Evidence must NOT contain the secret or its prefix fragment
+      expect(finding?.evidence[0]).not.toContain(secretToken)
+      expect(finding?.evidence[0]).not.toContain(prefixFragment)
+      expect(finding?.evidence[0]).toContain('[redacted]')
+    })
+
+    it('handles multibyte non-ASCII and emoji prefixes before 120-char clipping boundary safely', () => {
+      const emojiPrefix = '🚀🔥🎉'.repeat(30)
+      const secretToken = 'AKIA1234567890ABCDEF'
+      const line = `${emojiPrefix} ${secretToken}`
+
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/emoji-secret.ts',
+            size: 500,
+            truncated: false,
+            content: `${line}\n`,
+          },
+        ],
+        sensitiveValues: [secretToken],
+      })
+
+      const findings = checkSecurity(ctx)
+      const finding = findings.find((f) => f.id.includes('hardcoded-secret'))
+      expect(finding).toBeDefined()
+      expect(finding?.evidence[0].length).toBeLessThanOrEqual(120)
+      expect(finding?.evidence[0]).not.toContain(secretToken)
+      // Must not end with broken surrogate
+      expect(/[\uD800-\uDBFF]$/.test(finding?.evidence[0] || '')).toBe(false)
+    })
+
     it('detects dangerous eval execution', () => {
       const ctx = createMockContext({
         files: [

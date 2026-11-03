@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
-import type { RoastReport } from '../types/report'
+import { isRepositoryReport, type RoastReport } from '../types/report'
+import { toPublicRepositoryReport } from '../security/public-report'
 import { HttpError } from './http'
 
 const TTL = 15 * 60_000
@@ -69,12 +70,13 @@ export function acquireScan(request: Request, now = Date.now(), kind: 'website' 
 export function retainReport(report: RoastReport, now = Date.now()): RoastReport {
   for (const [id, item] of state.reports) if (Date.parse(item.expiresAt) <= now) state.reports.delete(id)
   while (state.reports.size >= MAX_REPORTS) state.reports.delete(state.reports.keys().next().value!)
-  state.reports.set(report.id, report)
-  const { id, expiresAt } = report
+  const safeReport = isRepositoryReport(report) ? toPublicRepositoryReport(report) : report
+  state.reports.set(safeReport.id, safeReport)
+  const { id, expiresAt } = safeReport
   setTimeout(() => {
     if (state.reports.get(id)?.expiresAt === expiresAt) state.reports.delete(id)
   }, Math.max(0, Date.parse(expiresAt) - now)).unref()
-  return report
+  return safeReport
 }
 
 export function getReport(id: string, now = Date.now()): RoastReport {
@@ -83,7 +85,7 @@ export function getReport(id: string, now = Date.now()): RoastReport {
     state.reports.delete(id)
     throw new HttpError(404, 'REPORT_EXPIRED', 'This private report expired or the server restarted. Run a new scan.')
   }
-  return report
+  return isRepositoryReport(report) ? toPublicRepositoryReport(report) : report
 }
 
 export function reportExpiry(now = Date.now()): string { return new Date(now + TTL).toISOString() }

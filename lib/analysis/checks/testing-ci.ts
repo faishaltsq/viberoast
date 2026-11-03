@@ -1,8 +1,9 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 export function checkTestingCi(ctx: AnalysisContext): AnalysisFinding[] {
   const findings: AnalysisFinding[] = []
-  const { owner, repo, sha, tree, files } = ctx
+  const { owner, repo, sha, tree, files, sensitiveValues } = ctx
 
   // 1. CI Workflow Automation
   const hasCi = tree.some((entry) =>
@@ -25,7 +26,7 @@ export function checkTestingCi(ctx: AnalysisContext): AnalysisFinding[] {
       recommendation: 'Add a GitHub Actions workflow to run type checks, unit tests, and linting on pull requests.',
       source: 'repository',
       verification: 'verified',
-      githubPermaUrl: `https://github.com/${owner}/${repo}/tree/${sha}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/tree/${sha}`, sensitiveValues),
     })
   }
 
@@ -52,7 +53,7 @@ export function checkTestingCi(ctx: AnalysisContext): AnalysisFinding[] {
       recommendation: 'Introduce an automated test runner (such as Vitest, Jest, or Pytest) and add unit tests for critical paths.',
       source: 'repository',
       verification: 'verified',
-      githubPermaUrl: `https://github.com/${owner}/${repo}/tree/${sha}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/tree/${sha}`, sensitiveValues),
     })
   }
 
@@ -76,7 +77,7 @@ export function checkTestingCi(ctx: AnalysisContext): AnalysisFinding[] {
           source: 'repository',
           verification: 'verified',
           filePath: 'package.json',
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, sensitiveValues),
         })
       } else if (typeof testScript === 'string' && testScript.includes('no test specified')) {
         findings.push({
@@ -86,13 +87,15 @@ export function checkTestingCi(ctx: AnalysisContext): AnalysisFinding[] {
           description: 'The `npm test` script is still the initial `echo "Error: no test specified" && exit 1` default from `npm init`.',
           severity: 'high',
           confidence: 'high',
-          evidence: [`"test": "${testScript}"`],
+          evidence: pkgFile.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : [safeSnippet(`"test": "${testScript}"`, 120, sensitiveValues)],
           location: 'package.json',
           recommendation: 'Configure a real test runner in package.json scripts (e.g. `"test": "vitest run"`).',
           source: 'repository',
           verification: 'verified',
           filePath: 'package.json',
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, sensitiveValues),
         })
       }
     } catch {

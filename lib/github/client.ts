@@ -1,7 +1,15 @@
 import { GitHubApiError, GitHubRateLimitError } from './errors'
 import { recordGitHubRateLimit } from '../server/store'
+import { collectSensitiveValues } from '../security/redact'
 
 export { GitHubApiError, GitHubRateLimitError } from './errors'
+
+export interface FileContentResult {
+  content: string
+  size: number
+  truncated: boolean
+  unclippedSensitiveValues?: string[]
+}
 
 export interface GitHubRepoMeta {
   owner: string
@@ -182,7 +190,7 @@ export async function fetchFileContent(
   path: string,
   sha: string,
   signal?: AbortSignal
-): Promise<{ content: string; size: number; truncated: boolean }> {
+): Promise<FileContentResult> {
   const encOwner = encodeURIComponent(owner)
   const encRepo = encodeURIComponent(repo)
   const normalizedPath = path.replace(/^\/+/, '')
@@ -206,14 +214,25 @@ export async function fetchFileContent(
     ? Buffer.from(rawContent.replace(/\s/g, ''), 'base64').toString('utf8')
     : rawContent
 
+  // Harvest sensitive values on full decoded content before any clipping
+  const unclippedSensitiveValues = collectSensitiveValues([decoded])
+
   const fullSize = typeof data.size === 'number' ? data.size : Buffer.byteLength(decoded, 'utf8')
   const isTruncated = Boolean(data.truncated) || decoded.length > MAX_FILE_SIZE || fullSize > MAX_FILE_SIZE
   // ponytail: 32 KiB cap aligns with repoScanSchema file size ceiling; upgrade to raw stream if larger inspections needed
-  const content = decoded.length > MAX_FILE_SIZE ? decoded.slice(0, MAX_FILE_SIZE) : decoded
+  let content = decoded
+  if (decoded.length > MAX_FILE_SIZE) {
+    let sliced = decoded.slice(0, MAX_FILE_SIZE)
+    if (/[\uD800-\uDBFF]$/.test(sliced)) {
+      sliced = sliced.slice(0, -1)
+    }
+    content = sliced
+  }
 
   return {
     content,
     size: fullSize,
     truncated: isTruncated,
+    unclippedSensitiveValues,
   }
 }

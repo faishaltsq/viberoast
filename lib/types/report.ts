@@ -54,6 +54,14 @@ export const repoFileSchema = z.object({
 })
 export type RepoFile = z.infer<typeof repoFileSchema>
 
+export const repoSelectedFileSchema = z.object({
+  path: z.string().min(1).max(500),
+  size: z.number().int().nonnegative(),
+  truncated: z.boolean().optional(),
+  inspectedBytes: z.number().int().nonnegative().optional(),
+})
+export type RepoSelectedFile = z.infer<typeof repoSelectedFileSchema>
+
 export const repoScanSchema = z.object({
   owner: z.string().min(1).max(100),
   repo: z.string().min(1).max(100),
@@ -66,12 +74,7 @@ export const repoScanSchema = z.object({
   commitDate: z.string().datetime().nullable(),
   commitMessage: z.string().max(500).nullable(),
   tree: z.array(repoFileSchema).max(2000),
-  selectedFiles: z.array(z.object({
-    path: z.string(),
-    size: z.number().int().nonnegative(),
-    content: z.string().max(32_768), // 32 KiB max per file
-    truncated: z.boolean().optional(),
-  })).max(30),
+  selectedFiles: z.array(repoSelectedFileSchema).max(30),
   coverage: z.object({
     filesDiscovered: z.number().int().nonnegative(),
     filesInspected: z.number().int().nonnegative(),

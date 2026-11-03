@@ -36,7 +36,7 @@ export const fixtureRepoScan: RepoScanResult = {
     { path: 'package.json', type: 'file', size: 350 },
   ],
   selectedFiles: [
-    { path: 'src/index.ts', size: 120, content: 'export const run = () => {};', truncated: false },
+    { path: 'src/index.ts', size: 120, truncated: false },
   ],
   coverage: {
     filesDiscovered: 2,
