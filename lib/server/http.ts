@@ -44,7 +44,7 @@ export function assertSameOrigin(request: Request): void {
   const host = request.headers.get('host')
   const requestOrigin = host ? `${url.protocol}//${host}` : url.origin
   const expected = process.env.NODE_ENV === 'development' ? requestOrigin : process.env.APP_ORIGIN || (process.env.NODE_ENV === 'production' ? undefined : requestOrigin)
-  if (origin && origin !== expected && !isVercelPreviewOrigin(origin)) throw new HttpError(403, 'ORIGIN_DENIED', 'Submit this request from VibeRoast.')
+  if (origin && origin !== expected && !isVercelPreviewOrigin(origin)) throw new HttpError(403, 'ORIGIN_DENIED', 'Submit this request from SourceSanity.')
   if (request.headers.get('sec-fetch-site') === 'cross-site') throw new HttpError(403, 'ORIGIN_DENIED', 'Cross-site requests are not allowed.')
 }
 

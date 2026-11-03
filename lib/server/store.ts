@@ -7,8 +7,8 @@ const MAX_REPORTS = 20
 const WINDOW = 10 * 60_000
 
 type State = { reports: Map<string, RoastReport>; requests: Map<string, number[]>; active: number; globalRequests: number[] }
-const globalState = globalThis as typeof globalThis & { vibeRoastState?: State }
-const state: State = globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
+const globalState = globalThis as typeof globalThis & { vibeRoastState?: State; sourceSanityState?: State }
+const state: State = globalState.sourceSanityState ??= globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
 
 export function assertDeployment(): void {
   if (process.env.NODE_ENV !== 'production') return

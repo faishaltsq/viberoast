@@ -67,7 +67,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
     ctx.fillStyle = '#f5f1e8'; ctx.fillRect(0, 0, width, canvas.height)
     ctx.strokeStyle = '#20201e'; ctx.lineWidth = 4; ctx.strokeRect(18, 18, width - 36, canvas.height - 36)
     ctx.fillStyle = '#20201e'; ctx.font = '900 42px Arial'
-    ctx.fillText('VibeRoast', 48, 44)
+    ctx.fillText('SourceSanity', 48, 44)
     ctx.font = '16px monospace'
     lines(ctx, t('COMEDY CARD · NOT AN AUDIT GRADE', 'KARTU KOMEDI · BUKAN NILAI AUDIT'), 48, 102, square ? 984 : 320, 21, 2)
 
@@ -126,7 +126,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
     const url = URL.createObjectURL(blob)
     try {
       const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = `viberoast-${format}.png`; anchor.click()
+      anchor.href = url; anchor.download = `sourcesanity-${format}.png`; anchor.click()
     } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
   } finally {
     // Release the backing pixels after encoding, including failed exports.
@@ -135,5 +135,5 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
 }
 
 export function shareText(report: RoastReport, language: Language) {
-  return `VibeRoast: ${report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan pemindai, tanpa roasting AI.' : 'Scanner-only report, no AI roast.')}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`
+  return `SourceSanity: ${report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan pemindai, tanpa roasting AI.' : 'Scanner-only report, no AI roast.')}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`
 }

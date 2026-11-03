@@ -1,6 +1,8 @@
-# VibeRoast
+# SourceSanity
 
 Your AI built it. Our AI judges it.
+
+*SourceSanity was previously developed under the VibeRoast name.*
 
 The approved Next.js interface is retained. A bounded browser worker supplies evidence; a server-only DeepSeek adapter supplies commentary. The browser never receives provider credentials. Scans are passive: no form submission, authenticated browsing, repository execution, or bot-protection bypass.
 

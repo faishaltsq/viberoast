@@ -6,7 +6,7 @@ import net, { type AddressInfo } from 'node:net'
 import { once } from 'node:events'
 import { scanWebsite } from '../lib/scanner/client'
 
-const project = `viberoast-smoke-${process.pid}`
+const project = `sourcesanity-smoke-${process.pid}`
 const env: NodeJS.ProcessEnv = { ...process.env, SCANNER_TOKEN: randomBytes(32).toString('hex') }
 function compose(args: string[], timeout = 1_200_000) {
   const result = spawnSync('docker', ['compose', '-p', project, ...args], { env, encoding: 'utf8', timeout, maxBuffer: 16_000_000 })

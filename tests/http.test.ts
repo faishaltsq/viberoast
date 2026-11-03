@@ -12,7 +12,7 @@ describe('same-origin mutation boundary', () => {
     vi.stubEnv('APP_ORIGIN', '')
     const request = new Request('http://localhost:3000/api/roast', { headers: { host: '127.0.0.1:3000', origin: 'http://127.0.0.1:3000', 'sec-fetch-site': 'same-origin' } })
     expect(assertSameOrigin(request)).toBeUndefined()
-    expect(() => assertSameOrigin(new Request(request.url, { headers: { host: '127.0.0.1:3000', origin: 'https://attacker.example' } }))).toThrow(/VibeRoast/)
+    expect(() => assertSameOrigin(new Request(request.url, { headers: { host: '127.0.0.1:3000', origin: 'https://attacker.example' } }))).toThrow(/SourceSanity/)
   })
   it('uses the development request origin even when a previous local port is configured', () => {
     vi.stubEnv('NODE_ENV', 'development')
@@ -21,7 +21,7 @@ describe('same-origin mutation boundary', () => {
       const request = new Request('http://localhost:3000/api/roast', { headers: { host, origin: `http://${host}`, 'sec-fetch-site': 'same-origin' } })
       expect(assertSameOrigin(request)).toBeUndefined()
       for (const origin of ['https://attacker.example', 'http://127.0.0.1:3102']) {
-        expect(() => assertSameOrigin(new Request(request.url, { headers: { host, origin, 'sec-fetch-site': 'same-origin' } }))).toThrow(/VibeRoast/)
+        expect(() => assertSameOrigin(new Request(request.url, { headers: { host, origin, 'sec-fetch-site': 'same-origin' } }))).toThrow(/SourceSanity/)
       }
       expect(() => assertSameOrigin(new Request(request.url, { headers: { host, origin: `http://${host}`, 'sec-fetch-site': 'cross-site' } }))).toThrow(/Cross-site/)
     }
@@ -33,7 +33,7 @@ describe('same-origin mutation boundary', () => {
     vi.stubEnv('VERCEL_ENV', 'production')
     vi.stubEnv('VERCEL_URL', 'viberoast-deployment.vercel.app')
     vi.stubEnv('VERCEL_BRANCH_URL', 'viberoast-git-main.vercel.app')
-    expect(() => assertSameOrigin(new Request('http://localhost/api/roast', { headers: { host: 'attacker.example', origin: 'https://attacker.example' } }))).toThrow(/VibeRoast/)
+    expect(() => assertSameOrigin(new Request('http://localhost/api/roast', { headers: { host: 'attacker.example', origin: 'https://attacker.example' } }))).toThrow(/SourceSanity/)
     expect(assertSameOrigin(new Request('http://localhost/api/roast', { headers: { origin: 'https://viberoast.example.com' } }))).toBeUndefined()
     for (const host of ['viberoast-deployment.vercel.app', 'viberoast-git-main.vercel.app']) {
       expect(() => assertSameOrigin(new Request(`https://${host}/api/roast`, { headers: { host, origin: `https://${host}` } }))).toThrow(expect.objectContaining({ status: 403, code: 'ORIGIN_DENIED' }))
