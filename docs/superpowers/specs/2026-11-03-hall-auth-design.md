@@ -1,6 +1,6 @@
 # SourceSanity authenticated Hall design
 
-Status: architecture approved; written specification awaiting review.
+Status: approved for implementation by user instruction to continue through completion.
 
 ## Intent and constraints
 
@@ -89,7 +89,7 @@ Final delivery identifies branch/commit/PR, changed files, architecture/setup do
 - [x] Inspect fetched main and collaboration boundaries.
 - [x] Obtain architecture approval.
 - [x] Isolate branch/worktree and write specification.
-- [ ] Obtain written-spec approval.
-- [ ] Write implementation plan and obtain execution-method selection.
+- [x] Obtain written-spec approval.
+- [x] Write implementation plan; execute supervised specialist lanes under the user's completion instruction.
 - [ ] Implement auth, protected Hall, fictional case files and localization.
 - [ ] Reconcile lanes, verify, document and deliver without deployment.
