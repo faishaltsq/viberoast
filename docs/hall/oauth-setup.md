@@ -16,6 +16,8 @@ Use the project URL and publishable key from the Supabase project settings. The 
 
 `AUTH_SITE_URL` is the exact trusted application origin for the current environment. Local testing may use `http://127.0.0.1:3000` instead of localhost, but choose one consistently for the browser, callback and environment variable because PKCE cookies are origin-bound. Production uses the existing verified Vercel origin, not an invented custom domain or a request-supplied host.
 
+The supported Supabase SSR browser/server integration uses browser-readable session cookies so the browser SDK can initiate PKCE and maintain the session. They are not HttpOnly cookies. Use HTTPS (Secure cookies in deployed environments), SameSite=Lax and a narrow application origin; server-side `getUser()` validation remains mandatory. This does not protect a stolen token from an XSS vulnerability: keep untrusted markup out of the UI and never log or expose cookie values. Provider API refresh tokens are unnecessary for this identity-only application.
+
 ## Supabase project
 
 1. Create/select the intended Supabase project. No Hall database tables or storage buckets are needed in V1.
@@ -57,3 +59,13 @@ Do not rename the current Vercel project or change its secrets automatically. Ad
 - [ ] Repeat on the existing Vercel deployment after separately authorized deployment/configuration.
 
 CI uses mocked external OAuth/Supabase responses. Mock-backed tests are not proof of live provider setup. Do not mark these boxes complete without actual provider credentials and observed successful journeys. Missing configuration should display a setup-unavailable message rather than break public scanners.
+
+## Official integration references
+
+- [Supabase server-side clients and refresh](https://supabase.com/docs/guides/auth/server-side/creating-a-client)
+- [PKCE code exchange](https://supabase.com/docs/guides/auth/sessions/pkce-flow)
+- [GitHub identity provider](https://supabase.com/docs/guides/auth/social-sign-in/auth-github)
+- [Google identity provider](https://supabase.com/docs/guides/auth/social-sign-in/auth-google)
+- [Next.js proxy convention](https://nextjs.org/docs/app/api-reference/file-conventions/proxy)
+
+The application deliberately uses a stricter return-destination allowlist than generic documentation snippets: no forwarded-host redirect and no arbitrary slash-prefixed target.

@@ -91,5 +91,5 @@ Final delivery identifies branch/commit/PR, changed files, architecture/setup do
 - [x] Isolate branch/worktree and write specification.
 - [x] Obtain written-spec approval.
 - [x] Write implementation plan; execute supervised specialist lanes under the user's completion instruction.
-- [ ] Implement auth, protected Hall, fictional case files and localization.
-- [ ] Reconcile lanes, verify, document and deliver without deployment.
+- [x] Implement auth, protected Hall, fictional case files and localization.
+- [x] Reconcile lanes, verify and document without deployment; see docs/hall/delivery.md for baseline lint and external configuration limits.

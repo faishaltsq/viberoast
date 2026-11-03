@@ -1,6 +1,8 @@
 import { test, expect, type Page } from '@playwright/test'
 import type { WebsiteReport } from '../lib/types/report'
 import { makeReport } from '../tests/fixtures/report'
+import { setAuthenticatedCookie } from './support/auth-fixtures'
+import { DETERMINISTIC_TOKENS, MOCK_GITHUB_USER } from './support/mock-auth'
 
 function reportFixture() {
   const report = makeReport()
@@ -78,29 +80,46 @@ test('screenshots retain an honest frame while decoding, failing, and switching 
   await expect(page.getByRole('img', { name: 'Actual desktop screenshot of the scanned page' })).toBeVisible()
 })
 
-test('Hall trims search, reports counts, and recovers from empty filters', async ({ page }) => {
+test('Hall trims search, reports counts, and recovers from empty filters', async ({ page, context }) => {
+  await setAuthenticatedCookie(context, {
+    user: MOCK_GITHUB_USER,
+    token: DETERMINISTIC_TOKENS.GITHUB,
+  })
   await page.goto('/')
   const menu = page.getByRole('button', { name: 'Toggle menu' })
   if (await menu.isVisible()) await menu.click()
   await page.getByRole('navigation').getByRole('link', { name: 'Hall of Shame', exact: true }).click()
-  const search = page.getByRole('textbox', { name: 'Search projects' })
-  await search.fill('  SaaSStarter  ')
-  await expect(page.getByRole('heading', { name: 'SaaSStarter', exact: true })).toBeVisible()
-  await expect(page.getByRole('status').filter({ hasText: '1 example shown' })).toBeVisible()
-  await page.getByRole('button', { name: 'Clear search', exact: true }).click()
-  await expect(search).toHaveValue('')
-  await expect(page.getByRole('status').filter({ hasText: '2 examples shown' })).toBeVisible()
-  await page.getByLabel('Sort examples').selectOption('name')
-  await page.getByRole('button', { name: 'Hall of Vibes', exact: true }).click()
-  await expect(page.getByRole('button', { name: 'Hall of Vibes', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await page.waitForURL(/\/hall/)
+
+  const search = page.getByRole('textbox', { name: /Search case files|Cari berkas kasus/i })
+  await search.fill('  Newsletter  ')
+  await expect(page.getByRole('heading', { name: /The Escapeless Newsletter Overlay/i })).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('1 case displayed')
+
+  await search.fill('')
+  await expect(page.getByRole('status')).toContainText('4 cases displayed')
+
+  const sortSelect = page.getByRole('combobox', { name: /Sort case files|Urutkan berkas kasus/i })
+  await sortSelect.selectOption('title-asc')
+
+  const vibesBtn = page.getByRole('button', { name: /Hall of Vibes/i })
+  await vibesBtn.click()
+  await expect(vibesBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('status')).toContainText('2 cases displayed')
+
   await search.fill('no-such-example')
-  await expect(page.getByRole('heading', { name: 'No examples match.', exact: true })).toBeVisible()
-  await expect(page.getByRole('status').filter({ hasText: '0 examples shown' })).toBeVisible()
-  await page.getByRole('button', { name: 'Reset filters', exact: true }).click()
+  await expect(page.getByRole('heading', { name: /No case files match/i })).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('0 cases displayed')
+
+  await page.getByRole('button', { name: /Reset filters|Atur Ulang Filter/i }).first().click()
   await expect(search).toHaveValue('')
-  await expect(page.getByLabel('Sort examples')).toHaveValue('heat')
-  await expect(page.getByRole('button', { name: 'Hall of Shame', exact: true })).toHaveAttribute('aria-pressed', 'true')
-  await expect(page.getByRole('status').filter({ hasText: '2 examples shown' })).toBeVisible()
+  await expect(vibesBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('status')).toContainText('2 cases displayed')
+
+  const shameBtn = page.getByRole('button', { name: /Hall of Shame/i })
+  await shameBtn.click()
+  await expect(shameBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('status')).toContainText('4 cases displayed')
 })
 
 for (const empty of [false, true]) {
