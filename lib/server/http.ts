@@ -31,13 +31,20 @@ export async function readJson<T>(request: Request, schema: z.ZodType<T>): Promi
   } finally { clearTimeout(deadline); reader.releaseLock() }
 }
 
+function isVercelPreviewOrigin(origin: string): boolean {
+  if (process.env.NODE_ENV !== 'production' || process.env.VERCEL !== '1' || process.env.VERCEL_ENV !== 'preview') return false
+  return [process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL].some(host =>
+    !!host && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.vercel\.app$/.test(host) && origin === `https://${host}`
+  )
+}
+
 export function assertSameOrigin(request: Request): void {
   const origin = request.headers.get('origin')
   const url = new URL(request.url)
   const host = request.headers.get('host')
   const requestOrigin = host ? `${url.protocol}//${host}` : url.origin
-  const expected = process.env.NODE_ENV === 'development' ? requestOrigin : process.env.APP_ORIGIN || requestOrigin
-  if (origin && origin !== expected) throw new HttpError(403, 'ORIGIN_DENIED', 'Submit this request from VibeRoast.')
+  const expected = process.env.NODE_ENV === 'development' ? requestOrigin : process.env.APP_ORIGIN || (process.env.NODE_ENV === 'production' ? undefined : requestOrigin)
+  if (origin && origin !== expected && !isVercelPreviewOrigin(origin)) throw new HttpError(403, 'ORIGIN_DENIED', 'Submit this request from VibeRoast.')
   if (request.headers.get('sec-fetch-site') === 'cross-site') throw new HttpError(403, 'ORIGIN_DENIED', 'Cross-site requests are not allowed.')
 }
 

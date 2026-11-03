@@ -24,6 +24,17 @@ test('extracts actual DOM evidence, measured overflow and a bounded JPEG', async
   expect(metadata.height).toBeLessThanOrEqual(1280)
 })
 
+test('captures a viewport when sensitive text is outside the captured viewport, but rejects it after scrolling into view', async ({ page }) => {
+  await page.setContent('<!doctype html><html lang="en"><title>Viewport privacy fixture</title><body style="margin:0"><main style="height:200vh"><h1>Public landing page</h1></main><footer><p>support@example.org</p><p>api_key=controlled-secret-value</p></footer></body></html>')
+  const evidence = await extractPage(page)
+  expect(evidence.sensitive).toBe(true)
+  expect(evidence.text).not.toContain('support@example.org')
+  expect(evidence.text).not.toContain('controlled-secret-value')
+  await expect(captureScreenshot(page)).resolves.toMatch(/^data:image\/jpeg;base64,/)
+  await page.locator('footer').scrollIntoViewIfNeeded()
+  await expect(captureScreenshot(page)).rejects.toBeInstanceOf(SensitiveScreenshotError)
+})
+
 test('omits screenshot pixels for every recognized assignment credential format', async ({ page }) => {
   for (const name of ['session_id', 'passwd', 'cookie', 'authorization', 'access_token', 'refresh_token', 'client_secret', 'private_key', 'api_key']) {
     await page.setContent(`<!doctype html><html lang="en"><title>Privacy fixture</title><body><p>${name}=controlled-secret-value</p></body></html>`)

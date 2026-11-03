@@ -25,6 +25,16 @@
   height: auto;
   min-height: 220px;
   aspect-ratio: 16 / 10;
+  scrollbar-width: none;
+}
+
+.results .screenshot::-webkit-scrollbar {
+  display: none;
+}
+
+.results :global(.site-shot):focus-within {
+  outline: 3px solid var(--ink);
+  outline-offset: 4px;
 }
 
 .results .screenshot[data-viewport='mobile'] {

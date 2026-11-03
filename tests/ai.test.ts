@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest'
 import { AiError, generateRoast } from '../lib/ai/deepseek'
-import type { Intensity, Language, ScanResult } from '../lib/types/report'
+import type { Finding, Intensity, Language, RoastReport, ScanResult } from '../lib/types/report'
+import { generatePrompt } from '../lib/prompts/generate'
+import { UIUX_SKILL } from '../lib/ai/skills/uiux'
 
 const options = { language: 'en', intensity: 'Friendly Fire' } as const
 function scan(): ScanResult {
@@ -16,15 +18,33 @@ function scan(): ScanResult {
     metrics: { navigationMs: 250, requestCount: 3, failedRequests: 0, consoleErrors: 0 }, evidenceSummary: 'One unnamed input.',
   }
 }
+function visualFinding(id = 'visual-1') {
+  return {
+    id, category: 'UI', title: 'Crowded hero actions',
+    description: 'The two hero actions appear crowded, making their labels harder to distinguish.',
+    severity: 'low', confidence: 'medium', viewport: 'desktop', region: 'Hero action row below the introduction',
+    evidence: ['The secondary action label visibly overlaps the primary action border.'],
+    recommendation: 'Increase the gap between the hero actions while retaining the existing button styles.',
+  }
+}
 function generated() {
   return {
     verdict: { headline: 'Your input went undercover', summary: 'A label would help this search input introduce itself.', developerNickname: 'Label Wrangler', reaction: 'helpful' },
     findings: [{ id: 'finding-1', evidenceIds: ['finding-1'], roast: 'The search input forgot its name badge.', reaction: 'suspicious' }],
+    visualFindings: [] as ReturnType<typeof visualFinding>[],
     overallSummary: 'One observed label issue; this is not a complete audit.',
   }
 }
 function response(value: unknown = generated()) {
   return new Response(JSON.stringify({ choices: [{ finish_reason: 'stop', message: { content: typeof value === 'string' ? value : JSON.stringify(value) } }] }), { status: 200 })
+}
+function withVisuals(input = scan(), visuals = [visualFinding()]) {
+  const output = generated()
+  output.visualFindings = visuals
+  output.findings = [...input.findings, ...visuals].map(({ id }) => ({
+    id, evidenceIds: [id], roast: 'This observed detail deserves a little breathing room.', reaction: 'helpful',
+  }))
+  return output
 }
 
 let fetchMock: Mock
@@ -51,6 +71,7 @@ describe('DeepSeek grounded commentary', () => {
     expect(body.response_format).toEqual({ type: 'json_object' })
     expect(body.max_tokens).toBeLessThanOrEqual(12_000)
     expect(result.visualAnalysis).toBe(false)
+    expect(result.visualFindings).toEqual([])
     expect(result.commentary.findings[0].explanation).toBe(input.findings[0].description)
     expect(result.commentary.findings[0].recommendation).toBe(input.findings[0].recommendation)
     expect(result.commentary.strengths).toEqual(input.strengths)
@@ -167,7 +188,8 @@ describe('DeepSeek grounded commentary', () => {
     const result = await generateRoast(scan(), options)
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(result.visualAnalysis).toBe(true)
-    expect(body.messages[1].content[1]).toEqual({ type: 'image_url', image_url: { url: scan().screenshots.desktop, detail: 'low' } })
+    expect(body.messages[1].content[1]).toMatchObject({ type: 'text', text: expect.stringContaining('desktop') })
+    expect(body.messages[1].content[2]).toEqual({ type: 'image_url', image_url: { url: scan().screenshots.desktop, detail: 'low' } })
   })
 
   it('does not claim vision if an opted-in scan has no images', async () => {
@@ -244,4 +266,120 @@ it('preserves canonical finding order if provider entries arrive in a different 
   const result = await generateRoast(input, options)
   expect(result.commentary.findings.map((finding) => finding.id)).toEqual(['finding-1', 'finding-2'])
   expect(result.commentary.findings[1].explanation).toBe('A second canonical observation.')
+})
+
+describe('screenshot UI/UX judge', () => {
+  it('accepts a grounded visual observation from a supplied screenshot without mutating the scan', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockResolvedValueOnce(response(withVisuals(input)))
+    const result = await generateRoast(input, options)
+    expect(result.visualAnalysis).toBe(true)
+    expect(result.visualFindings).toHaveLength(1)
+    expect(result.visualFindings[0]).toMatchObject({
+      id: 'visual-1', category: 'UI', severity: 'low', confidence: 'medium',
+      source: 'browser', verification: 'heuristic',
+    })
+    expect(result.visualFindings[0].location).toBe('desktop screenshot: Hero action row below the introduction')
+    expect(result.visualFindings[0].description).toContain('AI visual heuristic')
+    expect(result.visualFindings[0].evidence[0]).toContain('AI visual heuristic from supplied desktop screenshot')
+    expect(result.commentary.findings.map(({ id }) => id)).toEqual(['finding-1', 'visual-1'])
+    expect(input.findings).toHaveLength(1)
+  })
+
+  it('keeps the versioned rubric in trusted instructions only', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    await generateRoast(scan(), options)
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.messages[0].content).toContain(UIUX_SKILL.id)
+    expect(body.messages[0].content).toContain(UIUX_SKILL.version)
+    expect(body.messages[1].content[0].text).not.toContain(UIUX_SKILL.id)
+  })
+
+  it('accepts an honest empty visual review when the screenshot shows no actionable issue', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const result = await generateRoast(scan(), options)
+    expect(result.visualAnalysis).toBe(true)
+    expect(result.visualFindings).toEqual([])
+  })
+
+  it('rejects fabricated visual findings when no screenshot was supplied', async () => {
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input)))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('rejects a visual observation for a viewport that was not supplied', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [{ ...visualFinding(), viewport: 'mobile' }])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it.each([
+    ['category', { category: 'Security' }],
+    ['severity', { severity: 'high' }],
+    ['confidence', { confidence: 'high' }],
+    ['extra field', { verification: 'verified' }],
+  ])('rejects an unsupported visual %s', async (_name, patch) => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [{ ...visualFinding(), ...patch } as ReturnType<typeof visualFinding>])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it.each(['This is verified.', 'Contrast is 4.5:1.', 'The page loads in 200 ms.'])('rejects unsupported visual certainty or measurement: %s', async (description) => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [{ ...visualFinding(), description }])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it('rejects a visual observation that duplicates scanner evidence', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [{ ...visualFinding(), title: input.findings[0].title }])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it('rejects unknown, duplicate, and over-capacity visual IDs', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [visualFinding('visual-9')])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+    fetchMock.mockImplementation(async () => response(withVisuals(input, [visualFinding('visual-1'), visualFinding('visual-1')])))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+    fetchMock.mockImplementation(async () => response(withVisuals(input, Array.from({ length: 7 }, (_, index) => visualFinding(`visual-${index + 1}`)))))
+    await expect(generateRoast(input, options)).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
+  })
+
+  it('redacts secrets from visual observations', async () => {
+    vi.stubEnv('DEEPSEEK_SUPPORTS_VISION', 'true')
+    const input = scan()
+    fetchMock.mockResolvedValueOnce(response(withVisuals(input, [{ ...visualFinding(), description: 'The hero shows password=hunter2 in plain text.' }])))
+    const result = await generateRoast(input, options)
+    expect(result.visualFindings[0].description).not.toContain('hunter2')
+  })
+
+  it('carries a visual finding into the generated implementation prompt', () => {
+    const input = scan()
+    const visual: Finding = {
+      id: 'visual-1', category: 'UI', title: 'Crowded hero actions',
+      description: 'AI visual heuristic: The two hero actions appear crowded.',
+      severity: 'low', confidence: 'medium',
+      evidence: ['AI visual heuristic from supplied desktop screenshot: The labels visibly overlap.'],
+      location: 'desktop screenshot: Hero action row', recommendation: 'Increase the gap between the hero actions.',
+      source: 'browser', verification: 'heuristic',
+    }
+    const report: RoastReport = {
+      id: '55555555-5555-4555-8555-555555555555', expiresAt: '2026-11-02T12:15:00.000Z',
+      language: 'en', intensity: 'Friendly Fire', scan: { ...input, findings: [...input.findings, visual] },
+      commentary: null, aiStatus: 'unavailable', aiMessage: null, visualAnalysis: true,
+    }
+    const prompt = generatePrompt(report, { selectedIds: ['visual-1'], preset: 'Codex', language: 'en', detail: 'detailed' })
+    expect(prompt).toContain('Crowded hero actions')
+    expect(prompt).toContain('AI visual heuristic')
+    expect(prompt).toContain('Screenshot input was supplied to the provider')
+  })
 })

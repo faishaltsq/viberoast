@@ -8,7 +8,7 @@ import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '../.
 import { acquireScan, assertDeployment, reportExpiry, retainReport } from '../../../lib/server/store'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 160
 const requestSchema = z.object({ url: z.string().trim().min(1).max(2048), language: languageSchema, intensity: intensitySchema }).strict()
 
 export async function POST(request: Request): Promise<Response> {
@@ -23,7 +23,7 @@ export async function POST(request: Request): Promise<Response> {
     try { url = normalizePublicUrl(input.url) } catch { throw new HttpError(400, 'INVALID_URL', 'Enter a public HTTP or HTTPS website on a standard port, without credentials.') }
     request.signal.throwIfAborted()
     release = acquireScan(request)
-    const scan = await scanWebsite(url, request.signal)
+    let scan = await scanWebsite(url, request.signal)
     request.signal.throwIfAborted()
     let commentary: RoastReport['commentary'] = null
     let visualAnalysis = false
@@ -32,6 +32,7 @@ export async function POST(request: Request): Promise<Response> {
       const generated = await generateRoast(scan, input, request.signal)
       commentary = generated.commentary
       visualAnalysis = generated.visualAnalysis
+      if (generated.visualFindings.length) scan = { ...scan, findings: [...scan.findings, ...generated.visualFindings] }
     } catch (error) {
       if (request.signal.aborted) throw error
       aiMessage = input.language === 'id'

@@ -4,6 +4,7 @@ import { normalizePublicUrl } from '../lib/security/url'
 import { redactSecrets, redactUrl, SENSITIVE_TEXT_PATTERN } from '../lib/security/redact'
 import { scanSchema, type ScanResult } from '../lib/types/report'
 import { buildFindings, extractPage, isChallengePage, type PageEvidence } from './extract'
+import { BrowserEvidenceCollector } from './browser-evidence'
 
 export interface ScannerConfig { proxyUrl: string }
 
@@ -13,10 +14,17 @@ export async function captureScreenshot(page: Page): Promise<string> {
   // Pixel redaction is not reliable for credentials: omit images instead.
   const unsafe = await page.evaluate((sensitivePattern) => {
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT)
+    const range = document.createRange()
     let node = walker.nextNode(), count = 0
     const sensitive = new RegExp(sensitivePattern, 'i')
     while (node && count++ < 10_000) {
-      if (sensitive.test(node.textContent ?? '')) return true
+      const parent = node.parentElement
+      if (sensitive.test(node.textContent ?? '') && parent && getComputedStyle(parent).visibility === 'visible') {
+        range.selectNodeContents(node)
+        for (const rect of range.getClientRects()) {
+          if (rect.width > 0 && rect.height > 0 && rect.right > 0 && rect.left < innerWidth && rect.bottom > 0 && rect.top < innerHeight) return true
+        }
+      }
       node = walker.nextNode()
     }
     return Boolean(node)
@@ -41,17 +49,23 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
   let desktop: PageEvidence | null = null, mobile: PageEvidence | null = null
   const screenshots: ScanResult['screenshots'] = { desktop: null, mobile: null }
   const unavailableContent = { desktop: false, mobile: false }
+  const browserEvidence = { desktop: new BrowserEvidenceCollector('desktop'), mobile: new BrowserEvidenceCollector('mobile') }
   let budgetExceeded = false, responseBytes = 0, sensitiveScreenshots = false
   const browser = await chromium.launch({
     headless: true, chromiumSandbox: true, timeout: 10_000,
     proxy: { server: config.proxyUrl, bypass: '' },
     args: ['--disable-quic', '--proxy-bypass-list=<-loopback>', '--disable-background-networking', '--force-webrtc-ip-handling-policy=disable_non_proxied_udp'],
   })
-  const deadline = setTimeout(() => { void browser.close().catch(() => {}) }, 38_000)
+  const deadline = setTimeout(() => {
+    browserEvidence.desktop.stop('scan-budget')
+    browserEvidence.mobile.stop('scan-budget')
+    void browser.close().catch(() => {})
+  }, 38_000)
   try {
     for (const mode of ['desktop', 'mobile'] as const) {
       if (Date.now() - started > 30_000 || budgetExceeded) { warn('The scan budget was exhausted before both viewports completed.'); break }
       let context: BrowserContext | undefined
+      const observed = browserEvidence[mode]
       try {
         context = await browser.newContext({
           viewport: mode === 'desktop' ? { width: 1440, height: 900 } : { width: 390, height: 844 },
@@ -66,6 +80,7 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
           while (previous && redirects <= 8) { redirects++; previous = previous.redirectedFrom() }
           if (metrics.requestCount > 140 || redirects > 8) {
             budgetExceeded = true
+            observed.stop('scan-budget')
             warn('The request or redirect-chain limit was reached.')
             void context?.close().catch(() => {})
           }
@@ -75,26 +90,48 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
           let redirects = 0, previous = request.redirectedFrom()
           while (previous) { redirects++; previous = previous.redirectedFrom(); if (redirects > 8) break }
           try {
-            if (metrics.requestCount > 140 || responseBytes > 24_000_000) { budgetExceeded = true; warn('Request or transferred-byte limits were reached.'); await route.abort(); return }
-            if (redirects > 8 || !['GET', 'HEAD'].includes(request.method())) { warn('A redirect chain or non-read-only request was blocked.'); await route.abort(); return }
+            if (metrics.requestCount > 140 || responseBytes > 24_000_000) {
+              budgetExceeded = true
+              observed.blockRequest(request, 'request-budget')
+              observed.stop('scan-budget')
+              warn('Request or transferred-byte limits were reached.')
+              await route.abort()
+              return
+            }
+            if (redirects > 8 || !['GET', 'HEAD'].includes(request.method())) {
+              observed.blockRequest(request, redirects > 8 ? 'redirect-limit' : 'read-only-policy')
+              warn('A redirect chain or non-read-only request was blocked.')
+              await route.abort()
+              return
+            }
             normalizePublicUrl(request.url())
             const headers = { ...request.headers() }
             delete headers.authorization
             delete headers.cookie
             await route.continue({ headers })
-          } catch { warn('A non-public or unsupported subresource destination was blocked.'); await route.abort().catch(() => {}) }
+          } catch {
+            observed.blockRequest(request, 'unsafe-destination')
+            warn('A non-public or unsupported subresource destination was blocked.')
+            await route.abort().catch(() => {})
+          }
         })
-        await context.routeWebSocket('**/*', (socket) => socket.close())
+        await context.routeWebSocket('**/*', (socket) => {
+          observed.blockUrl(socket.url(), 'websocket-policy')
+          socket.close()
+        })
         const page = await context.newPage()
         page.on('download', (download) => { warn('A download was blocked.'); void download.cancel().catch(() => {}) })
         page.on('popup', (popup) => { warn('A popup was blocked.'); void popup.close().catch(() => {}) })
-        page.on('console', (message) => { if (message.type() === 'error') metrics.consoleErrors = Math.min(metrics.consoleErrors + 1, 1000) })
-        page.on('pageerror', () => { metrics.consoleErrors = Math.min(metrics.consoleErrors + 1, 1000) })
-        page.on('requestfailed', () => { metrics.failedRequests = Math.min(metrics.failedRequests + 1, 1000) })
+        observed.attach(page, metrics)
         page.on('requestfinished', (request) => {
           void request.sizes().then(({ responseBodySize }) => {
             responseBytes += responseBodySize
-            if (responseBytes > 24_000_000) { budgetExceeded = true; warn('Transferred-byte limits were reached.'); void context?.close().catch(() => {}) }
+            if (responseBytes > 24_000_000) {
+              budgetExceeded = true
+              observed.stop('scan-budget')
+              warn('Transferred-byte limits were reached.')
+              void context?.close().catch(() => {})
+            }
           }).catch(() => {})
         })
         const navigation = Date.now()
@@ -122,7 +159,7 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
             warn(`${mode}: a possible bot-protection or access challenge was observed; target-page findings are withheld.`)
           }
           if (evidence.truncated) warn(`${mode}: DOM extraction was limited to the first 5,000 elements.`)
-          if (evidence.sensitive || evidence.truncated) sensitiveScreenshots = true
+          if (evidence.truncated) sensitiveScreenshots = true
           if (mode === 'desktop') desktop = evidence
           else mobile = evidence
         } catch { warn(`${mode}: DOM evidence could not be extracted.`) }
@@ -131,7 +168,10 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
           warn(`${mode}: a bounded, privacy-filtered screenshot could not be captured.`)
         }
       } catch { warn(`${mode}: browser context did not complete.`) }
-      finally { await context?.close().catch(() => {}) }
+      finally {
+        observed.stop('scan-teardown')
+        await context?.close().catch(() => {})
+      }
     }
   } finally { clearTimeout(deadline); await browser.close().catch(() => {}) }
   if (!desktop && !mobile) throw new Error('No inspectable page was returned')
@@ -142,7 +182,17 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
   }
   const assessedDesktop = unavailableContent.desktop ? null : desktop
   const assessedMobile = unavailableContent.mobile ? null : mobile
-  const findings = buildFindings(assessedDesktop, assessedMobile)
+  const findings = [
+    ...buildFindings(assessedDesktop, assessedMobile),
+    ...browserEvidence.desktop.findings(Boolean(assessedDesktop)),
+    ...browserEvidence.mobile.findings(Boolean(assessedMobile)),
+  ]
+  const browserObservations = [
+    browserEvidence.desktop.summary(Boolean(assessedDesktop)),
+    browserEvidence.mobile.summary(Boolean(assessedMobile)),
+  ]
+  if (metrics.consoleErrors || metrics.failedRequests) warn('Browser counters include all observed errors, including scanner-policy blocks and cancellations. Only eligible, evidence-linked observations become findings; user impact may remain uncertain.')
+  if (browserObservations.some(({ omitted }) => omitted > 0)) warn('Browser event details were limited to eight distinct entries per viewport; counters still include all observed events up to their limits.')
   const strengths: string[] = []
   if (assessedDesktop?.title.trim()) strengths.push('The rendered document has a non-empty page title.')
   if (assessedDesktop?.language.trim()) strengths.push('The document declares its language.')
@@ -153,6 +203,6 @@ export async function runScan(input: string, config: ScannerConfig): Promise<Sca
     url: redactUrl(target), finalUrl, scannedAt: new Date().toISOString(), status: incomplete ? 'partially_completed' : 'completed',
     title: desktop?.title ?? mobile?.title ?? '', description: desktop?.description ?? mobile?.description ?? '',
     screenshots, findings, strengths, warnings, metrics,
-    evidenceSummary: redactSecrets(JSON.stringify({ desktop, mobile, unavailableContent, observation: { transferredBytes: responseBytes, ...metrics } })).slice(0, 16_000),
+    evidenceSummary: redactSecrets(JSON.stringify({ desktop, mobile, unavailableContent, browserObservations, observation: { transferredBytes: responseBytes, ...metrics } })).slice(0, 16_000),
   })
 }

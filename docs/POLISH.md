@@ -176,3 +176,15 @@ Development now checks the actual request origin (host, scheme and port). Produc
 - Actual development HTTP probes rejected an attacker origin, the stale port-3102 origin and a cross-site marker with `403 ORIGIN_DENIED`.
 - Built production server on its configured port 3102 accepted the canonical origin through to `400 INVALID_REQUEST`, but rejected port 3000 and an attacker origin with `403 ORIGIN_DENIED`.
 - No scanner or paid AI call was needed for these boundary checks. No deployment performed.
+
+## Follow-up: browser evidence and screenshot UI/UX judge
+
+Three requested refinements were implemented without changing the approved visual identity, scanner isolation, or privacy boundary.
+
+1. **Screenshot preview scrollbar.** The preview keeps native `overflow: auto` but hides its scrollbar locally (`scrollbar-width: none` plus the WebKit pseudo-element). The region is focusable and labeled, and the existing `.site-shot` frame shows a visible focus outline. Wheel, touch, and keyboard scrolling remain available; page and prompt scrollbars are untouched.
+2. **Browser errors become evidence.** Console errors, uncaught exceptions, and failed requests previously only incremented counters, so a report could show eight console errors and four failed requests with zero findings. `worker/browser-evidence.ts` now retains bounded, redacted event details and produces at most one finding per event kind and viewport. Uncaught exceptions are verified as observed exceptions, not proof that a flow is broken; console and failed-request findings stay heuristic. Scanner-caused aborts (request/redirect budget, read-only policy, unsafe destination, WebSocket policy, scan budget/teardown, proxy uncertainty) are withheld from website findings and retained as labeled diagnostic context. Counters still include every observed event.
+3. **Screenshot UI/UX judge.** `lib/ai/skills/uiux.ts` is a versioned, typed rubric used as trusted system instructions. The existing single provider completion now also returns required `visualFindings` (at most six, only for supplied viewports, UI/UX categories, low/medium severity and confidence). The server reserves collision-free `visual-N` IDs, rejects unknown viewports, spoofed verification, unsupported measurements, duplicates, and over-capacity output, and attaches `source: browser` plus `verification: heuristic` with explicit screenshot provenance. Without vision or valid screenshots the array must be empty. Validated findings are appended to the report before retention, so Results, Fix My Shame, prompts, and exports use the same combined report.
+
+The judge is qualitative. It does not produce a quality score, WCAG result, performance number, or hidden-code claim, and an empty visual review is a valid outcome. The existing comedy heat remains an issue-density indicator, not a UI/UX grade.
+
+Rollout: browser-evidence changes require redeploying the isolated scanner worker and running a new scan; frontend/provider changes require deploying the web app. Existing reports are not retroactively regenerated.

@@ -4,6 +4,8 @@ Your AI built it. Our AI judges it.
 
 The approved Next.js interface is retained. A bounded browser worker supplies evidence; a server-only DeepSeek adapter supplies commentary. The browser never receives provider credentials. Scans are passive: no form submission, authenticated browsing, repository execution, or bot-protection bypass.
 
+The homepage's owner-requested ticker scrolls continuously from right to left with a seamless repeat. Pause/Resume is keyboard-operable, and system reduced-motion preferences replace it with a static, wrapping message. Repeated visual copies are hidden from assistive technology.
+
 ## Local web development
 
 Requirements: Node.js 24+, pnpm 12.3.4. The scanner additionally requires a Linux Docker runtime supporting Chromium's sandbox and the documented network policy.
@@ -55,19 +57,13 @@ See [worker deployment and isolation](worker/README.md). The worker is not an or
 
 Start the isolated worker using its Compose configuration after supplying the required token. The web server can run natively on the same host and reach the loopback-bound worker control port. Expose only the web application through HTTPS ingress. Do not publish the proxy or any browser debugging endpoint.
 
+Before each scan, the web server makes an authenticated, non-redirecting `GET /health` with a 50-second wake/readiness deadline. Only `{"status":"ready"}` permits `POST /scan`, which gets its own 50-second deadline. This lets an idle-paused Instabox worker resume on demand without spending the scan budget on startup. There is no scheduled keep-alive, account rotation, or background wake loop. A failed readiness check stops the request; HTTP 409 reports that the worker is still waking or cooling down.
+
 ## Production web deployment
 
-Vercel note: the project is linked as `viberoast`, and provider/scanner secrets are stored as
-**sensitive** Vercel environment variables for Production and Preview. Vercel cannot run the
-isolated scanner, and its serverless functions cannot use the process-local report store or
-rate limiter. Therefore `DEPLOYMENT_MODE` and `APP_ORIGIN` are deliberately **not** set on
-Vercel until the worker has a real host; the app then fails closed with
-`DEPLOYMENT_NOT_CONFIGURED` instead of pretending scanning works. Never set
-`DEPLOYMENT_MODE=single-instance` on Vercel to make the button appear functional.
+Vercel cannot run the isolated scanner. Host the worker + proxy on a Linux Docker host and set the web server's `SCANNER_URL` to its authenticated HTTPS/private-network control endpoint, with the matching server-only `SCANNER_TOKEN`. For Instabox, use the published HTTPS URL for control port 8787; leave the Docker port bound to loopback and never publish the egress proxy.
 
-Host the worker + proxy on a long-lived Linux Docker host, expose only its control port over a
-private/TLS network, then set `SCANNER_URL`, `APP_ORIGIN`, and `DEPLOYMENT_MODE` for a
-single-instance web deployment.
+Use `DEPLOYMENT_MODE=serverless` on Vercel and set `APP_ORIGIN` to the canonical web origin. Serverless mode keeps reports and prompt generation in the browser and rejects server-side report retrieval with 501; process-local admission/rate counters are not shared across instances. Do not set `single-instance` on Vercel. A natively hosted, single-process web server uses `DEPLOYMENT_MODE=single-instance`.
 
 ```sh
 pnpm typecheck
@@ -79,7 +75,7 @@ pnpm start
 
 Run **one long-lived web process** behind trusted HTTPS ingress. Do not use this process-local store/rate limiter across multiple replicas. Production scans fail closed unless `DEPLOYMENT_MODE=single-instance` (or explicit `serverless`) is configured. Serverless mode routes prompts and reports in-browser and rejects server-side retrieval with 501. Before horizontal scaling, replace report storage and admission/rate counters with a shared durable implementation; do not merely turn on replicas.
 
-Ingress requirements: body limit 8 KiB for mutation routes, request-header/body timeouts, upstream timeout sufficient for the bounded scan and AI request, and external abuse/connection limits. When `TRUST_PROXY=true`, the application must not be directly internet-accessible and ingress must overwrite `x-real-ip` instead of forwarding caller values. Without trusted IP configuration, all callers deliberately share the conservative anonymous limit.
+Ingress requirements: body limit 8 KiB for mutation routes, request-header/body timeouts, upstream timeout of at least 160 seconds for wake (50 s), scan (50 s), AI (45 s), and overhead, plus external abuse/connection limits. The roast route requests a 160-second runtime allowance and the browser waits up to 170 seconds; confirm the hosting plan permits this runtime. When `TRUST_PROXY=true`, the application must not be directly internet-accessible and ingress must overwrite `x-real-ip` instead of forwarding caller values. Without trusted IP configuration, all callers deliberately share the conservative anonymous limit.
 
 Private reports are process-local capabilities, retained for 15 minutes and capped at 20 reports. Restarts and eviction can remove them sooner. Reports and screenshots are returned with `Cache-Control: private, no-store`; possession of the unguessable report ID authorizes retrieval during retention. Do not log report bodies, capability IDs, target URL query strings, screenshots, or provider response content.
 

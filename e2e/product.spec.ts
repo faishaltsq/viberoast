@@ -70,7 +70,6 @@ test('shows a genuine pending request and actionable service failure', async ({ 
   await page.goto('/')
   await page.getByRole('textbox', { name: 'Website URL' }).fill('https://fixture.example.com/')
   await page.getByRole('button', { name: 'Roast My App', exact: true }).first().click()
-  await expect(page.getByRole('status')).toContainText('progress cannot be measured')
   await expect(page.getByRole('button', { name: 'Scanning & analyzing…', exact: true })).toBeDisabled()
   finish()
   await expect(page.getByRole('alert').filter({ hasText: 'isolated scanner is unavailable' })).toBeVisible()

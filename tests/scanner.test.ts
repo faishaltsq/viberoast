@@ -8,6 +8,7 @@ import { readBoundedResponse, scanWebsite } from '../lib/scanner/client'
 import { buildFindings, isChallengePage, type PageEvidence } from '../worker/extract'
 import { credentialsMatch, resolveProxyTarget } from '../worker/proxy'
 import { assertIsolation } from '../worker/isolation'
+import { fixtureScan } from './fixtures/report'
 
 export const cleanEvidence: PageEvidence = {
   title: 'Fixture page', description: 'A controlled rendered page', language: 'en', viewportMeta: 'width=device-width, initial-scale=1',
@@ -16,7 +17,7 @@ export const cleanEvidence: PageEvidence = {
   images: [{ alt: '', loaded: true }], inputs: [{ type: 'text', labeled: true }], styles: [], text: 'Fixture', truncated: false,
 }
 
-afterEach(() => { vi.unstubAllEnvs(); vi.restoreAllMocks() })
+afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); vi.restoreAllMocks() })
 
 describe('public destination boundary', () => {
   it.each([
@@ -76,6 +77,55 @@ describe('fail-closed worker and client', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch')
     await expect(scanWebsite('https://example.org')).rejects.toThrow('scanner is unavailable')
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+  it('lets an idle worker wake without consuming the scan deadline', async () => {
+    vi.useFakeTimers()
+    vi.stubEnv('SCANNER_URL', 'https://worker.example.com')
+    vi.stubEnv('SCANNER_TOKEN', 'a'.repeat(40))
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation(milliseconds => {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(new DOMException('Deadline exceeded', 'TimeoutError')), milliseconds)
+      return controller.signal
+    })
+    let ready = false
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, options) => {
+      const health = new URL(String(input)).pathname === '/health'
+      if (!health && !ready) return Response.json({ error: 'Worker is asleep' }, { status: 503 })
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(resolve, 40_000)
+        options?.signal?.addEventListener('abort', () => { clearTimeout(timer); reject(options.signal?.reason) }, { once: true })
+      })
+      if (health) { ready = true; return Response.json({ status: 'ready' }) }
+      return Response.json(fixtureScan)
+    })
+    const result = scanWebsite('https://example.org').then(scan => ({ scan }), error => ({ error }))
+    await vi.advanceTimersByTimeAsync(80_000)
+    expect(await result).toMatchObject({ scan: { status: 'completed', title: fixtureScan.title } })
+  })
+  it.each([
+    [401, 'application/json', '{"error":"Unauthorized"}'],
+    [409, 'application/json', '{"error":{"code":"machine_cooldown"}}'],
+    [200, 'application/json', '{"status":"starting"}'],
+    [200, 'text/html', '<html>Sign in</html>'],
+    [200, 'application/json', `{"status":"ready","padding":"${'x'.repeat(1024)}"}`],
+  ])('does not start a scan when worker readiness fails (%s, %s)', async (status, contentType, body) => {
+    vi.stubEnv('SCANNER_URL', 'https://worker.example.com')
+    vi.stubEnv('SCANNER_TOKEN', 'a'.repeat(40))
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(body, { status, headers: { 'content-type': contentType } }))
+    await expect(scanWebsite('https://example.org')).rejects.toThrow(status === 409 ? 'waking up or cooling down' : 'scanner is unavailable')
+    expect(fetchSpy).toHaveBeenCalledOnce()
+  })
+  it('cancels an in-flight wake without starting a scan', async () => {
+    vi.stubEnv('SCANNER_URL', 'https://worker.example.com')
+    vi.stubEnv('SCANNER_TOKEN', 'a'.repeat(40))
+    const controller = new AbortController()
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation((_input, options) => new Promise((_resolve, reject) => {
+      options?.signal?.addEventListener('abort', () => reject(options.signal?.reason), { once: true })
+    }))
+    const result = scanWebsite('https://example.org', controller.signal)
+    controller.abort()
+    await expect(result).rejects.toThrow('scanner is unavailable')
+    expect(fetchSpy).toHaveBeenCalledOnce()
   })
   it('bounds streamed worker responses', async () => {
     const response = new Response(new ReadableStream({ start(controller) { controller.enqueue(new Uint8Array(50)); controller.close() } }))

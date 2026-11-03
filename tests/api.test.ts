@@ -34,7 +34,7 @@ describe('roast API', () => {
   it('returns a retained real report with private cache policy', async () => {
     const api = await modules()
     api.scan.mockResolvedValue(fixtureScan)
-    api.ai.mockResolvedValue({ commentary: fixtureCommentary, visualAnalysis: false })
+    api.ai.mockResolvedValue({ commentary: fixtureCommentary, visualAnalysis: false, visualFindings: [] })
     const response = await api.POST(request(input))
     const report = await response.json()
     expect(response.status).toBe(200)
@@ -44,6 +44,31 @@ describe('roast API', () => {
     const { GET } = await import('../app/api/roast/[id]/route')
     const retrieved = await GET(new Request('http://localhost'), { params: Promise.resolve({ id: report.id }) })
     expect((await retrieved.json()).id).toBe(report.id)
+  })
+  it('retains validated visual findings in the report and generated prompt', async () => {
+    const api = await modules()
+    const visual = {
+      id: 'visual-1', category: 'UI' as const, title: 'Crowded hero actions',
+      description: 'AI visual heuristic: The two hero actions appear crowded.',
+      severity: 'low' as const, confidence: 'medium' as const,
+      evidence: ['AI visual heuristic from supplied desktop screenshot: The labels visibly overlap.'],
+      location: 'desktop screenshot: Hero action row', recommendation: 'Increase the gap between the hero actions.',
+      source: 'browser' as const, verification: 'heuristic' as const,
+    }
+    api.scan.mockResolvedValue(fixtureScan)
+    api.ai.mockResolvedValue({
+      commentary: { ...fixtureCommentary, findings: [...fixtureCommentary.findings, { id: 'visual-1', evidenceIds: ['visual-1'], roast: 'Give those buttons some elbow room.', explanation: visual.description, recommendation: visual.recommendation, reaction: 'helpful' }] },
+      visualAnalysis: true, visualFindings: [visual],
+    })
+    const report = await (await api.POST(request(input))).json()
+    expect(report.scan.findings.at(-1)).toMatchObject({ id: 'visual-1', source: 'browser', verification: 'heuristic' })
+    expect(report.commentary.findings.at(-1).id).toBe('visual-1')
+    const { POST } = await import('../app/api/prompts/generate/route')
+    const response = await POST(request({ reportId: report.id, selectedIds: ['visual-1'], preset: 'Codex', language: 'en', detail: 'short' }))
+    const { prompt } = await response.json()
+    expect(response.status).toBe(200)
+    expect(prompt).toContain('Crowded hero actions')
+    expect(prompt).toContain('AI visual heuristic')
   })
   it('labels partial scanner evidence and AI failure without inventing commentary', async () => {
     const api = await modules()
@@ -132,7 +157,7 @@ describe('private report retention and prompts', () => {
   it('generates only selected findings and rejects a fabricated finding ID', async () => {
     const api = await modules()
     api.scan.mockResolvedValue(fixtureScan)
-    api.ai.mockResolvedValue({ commentary: fixtureCommentary, visualAnalysis: false })
+    api.ai.mockResolvedValue({ commentary: fixtureCommentary, visualAnalysis: false, visualFindings: [] })
     const report = await (await api.POST(request(input))).json()
     const { POST } = await import('../app/api/prompts/generate/route')
     const options = { reportId: report.id, selectedIds: ['image-alt'], preset: 'Codex', language: 'en', detail: 'detailed' }

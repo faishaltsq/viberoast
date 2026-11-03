@@ -187,3 +187,55 @@ test('an idle provider reaction does not understate verified high severity', asy
   await showReport(page, report)
   await expect(page.getByRole('img', { name: 'Bro Code: surprised by the findings', exact: true }).first()).toBeVisible()
 })
+
+test('hides the screenshot scrollbar while wheel and keyboard scrolling still work', async ({ page, context }) => {
+  const source = await context.newPage()
+  await source.setViewportSize({ width: 1280, height: 800 })
+  await source.setContent('<!doctype html><html lang="en"><title>Tall screenshot fixture</title><body style="margin:0"><main style="height:3200px;background:linear-gradient(#fffdf7,#1b1a17)"><h1 style="margin:0;padding:24px">Tall captured page</h1></main></body></html>')
+  const jpeg = (await source.screenshot({ type: 'jpeg', fullPage: true })).toString('base64')
+  await source.close()
+  const report = reportFixture()
+  report.scan.screenshots = { desktop: `data:image/jpeg;base64,${jpeg}`, mobile: `data:image/jpeg;base64,${jpeg}` }
+  await showReport(page, report)
+  const preview = page.getByRole('region', { name: 'Desktop screenshot preview' })
+  await expect(preview).toBeVisible()
+  await expect.poll(() => preview.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+  expect(await preview.evaluate(element => getComputedStyle(element).scrollbarWidth)).toBe('none')
+  expect(await preview.evaluate(element => (element as HTMLElement).offsetWidth - element.clientWidth)).toBe(0)
+  await preview.focus()
+  await page.keyboard.press('PageDown')
+  await expect.poll(() => preview.evaluate(element => element.scrollTop)).toBeGreaterThan(0)
+  const keyboardPosition = await preview.evaluate(element => element.scrollTop)
+  await preview.hover()
+  await page.mouse.wheel(0, 400)
+  await expect.poll(() => preview.evaluate(element => element.scrollTop)).toBeGreaterThan(keyboardPosition)
+  await page.getByRole('button', { name: 'Mobile', exact: true }).click()
+  const mobile = page.getByRole('region', { name: 'Mobile screenshot preview' })
+  await expect.poll(() => mobile.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true)
+  expect(await mobile.evaluate(element => getComputedStyle(element).scrollbarWidth)).toBe('none')
+})
+
+test('renders an AI visual observation as a heuristic finding with screenshot provenance', async ({ page }) => {
+  const report = reportFixture()
+  report.scan.findings.push({
+    id: 'visual-1', category: 'UI', title: 'Crowded hero actions',
+    description: 'AI visual heuristic: The two hero actions appear crowded.',
+    severity: 'low', confidence: 'medium',
+    evidence: ['AI visual heuristic from supplied desktop screenshot: The labels visibly overlap.'],
+    location: 'desktop screenshot: Hero action row', recommendation: 'Increase the gap between the hero actions.',
+    source: 'browser', verification: 'heuristic',
+  })
+  report.commentary!.findings.push({
+    id: 'visual-1', evidenceIds: ['visual-1'], roast: 'Give those buttons some elbow room.',
+    explanation: 'AI visual heuristic: The two hero actions appear crowded.',
+    recommendation: 'Increase the gap between the hero actions.', reaction: 'helpful',
+  })
+  await showReport(page, report)
+  const card = page.getByRole('button', { name: /Give those buttons some elbow room/ })
+  await expect(card).toContainText('UI')
+  await expect(card.getByText('HEURISTIC · REVIEW', { exact: true })).toBeVisible()
+  await card.click()
+  await expect(page.getByText(/desktop screenshot: Hero action row/)).toBeVisible()
+  await expect(page.getByText('AI visual heuristic from supplied desktop screenshot: The labels visibly overlap.', { exact: true })).toBeVisible()
+  await expect(page.getByText('Source: browser · ID: visual-1', { exact: true })).toBeVisible()
+})
