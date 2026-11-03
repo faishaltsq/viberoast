@@ -4,6 +4,8 @@ import {
   redactSecretText,
   redactUrl,
   getRulePriority,
+  parseSecretAssignments,
+  SAFE_SECRET_ASSIGNMENT_PATTERN,
   type SecretCandidate,
   type SecretClassification,
   type SecretConfidence,
@@ -22,10 +24,8 @@ export {
   type SecretRule,
 }
 
-const SECRET_ASSIGNMENT = /\b(api[_-]?(?:key|secret)|access[_-]?token|refresh[_-]?token|token|authorization|auth[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?(?:key|token)|session[_-]?id|cookie|webhook[_-]?secret|aws[_-]?(?:secret[_-]?(?:access[_-]?)?key|key[_-]?id))["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s"'<>,;}]+)/gi
-
 export const SENSITIVE_TEXT_PATTERN = new RegExp([
-  SECRET_ASSIGNMENT.source,
+  SAFE_SECRET_ASSIGNMENT_PATTERN.source,
   String.raw`-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----`,
   String.raw`\b(?:Bearer|Basic)\s+\S+`,
   String.raw`\b(?:sk-[\w-]{12,}|gh[pousr]_\w{20,}|github_pat_\w{20,}|(?:AKIA|ASIA|ABIA|ACCA)[A-Z0-9]{16}|(?:sk|rk)_(?:test|live)_\w{24,}|xox[baprs]-[\w-]{10,}|eyJ[\w-]+\.[\w-]+\.[\w-]+)\b`,
@@ -60,13 +60,13 @@ export function collectSensitiveValues(sources: Iterable<string | undefined | nu
     }
 
     // 3. Secret assignments
-    const assignMatches = source.matchAll(SECRET_ASSIGNMENT)
-    for (const match of assignMatches) {
-      const full = match[0]
-      const eqIdx = full.search(/[=:]/)
-      if (eqIdx !== -1) {
-        const val = full.slice(eqIdx + 1).trim().replace(/^["']|["']$/g, '').trim()
-        if (val.length >= 4) values.add(val)
+    const assignments = parseSecretAssignments(source)
+    for (const assignment of assignments) {
+      if (assignment.value && assignment.value.length >= 4) {
+        values.add(assignment.value)
+        if (assignment.value.includes('\\')) {
+          values.add(assignment.value.replace(/\\(.)/g, '$1'))
+        }
       }
     }
 

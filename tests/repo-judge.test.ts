@@ -44,6 +44,7 @@ function createSampleScan(): RepoScanResult {
         verification: 'verified',
       },
     ],
+    securityFindings: [],
     strengths: ['TypeScript configured.'],
     warnings: [],
     evidenceSummary: 'Sample evidence summary for octocat/hello-world.',

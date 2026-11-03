@@ -1,5 +1,5 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
-import { redactUrl, safeSnippet, detectSecrets, getRulePriority, type SecretCandidate } from '../../security/redact'
+import { redactUrl, detectSecrets, getRulePriority, type SecretCandidate } from '../../security/redact'
 
 function fnv1a32(str: string): string {
   let hash = 0x811c9dc5
@@ -10,23 +10,49 @@ function fnv1a32(str: string): string {
   return (hash >>> 0).toString(16).padStart(8, '0')
 }
 
+function buildTrackedFileId(rulePrefix: string, filePath: string): string {
+  const pathHash = fnv1a32(filePath)
+  const cleanPath = filePath.replace(/[^A-Za-z0-9]/g, '-')
+  const overhead = rulePrefix.length + pathHash.length + 2
+  const maxSlugLen = Math.max(0, 100 - overhead)
+  const slug = cleanPath.slice(0, maxSlugLen).replace(/-+$/, '')
+  return slug ? `${rulePrefix}-${slug}-${pathHash}` : `${rulePrefix}-${pathHash}`
+}
+
 export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
   const findings: AnalysisFinding[] = []
   const { owner, repo, sha, tree, files, sensitiveValues } = ctx
 
-  // 1. Committed sensitive environment files (.env, .env.local, .env.production)
-  const envFiles = tree.filter((entry) =>
-    entry.type === 'file' &&
-    (
-      entry.path === '.env' ||
-      entry.path === '.env.local' ||
-      entry.path === '.env.production' ||
-      entry.path === '.env.development'
-    )
-  )
+  // 1. Filename-only observations for tracked sensitive files across ALL tree entries
+  for (const entry of tree) {
+    if (entry.type !== 'file') continue
 
-  for (const envFile of envFiles) {
-    const extracted = files.find((f) => f.path === envFile.path)
+    const normalized = entry.path.replace(/\\/g, '/')
+    const parts = normalized.split('/')
+    const filename = parts[parts.length - 1] ?? ''
+
+    // A. Environment file variants (root and nested, including .env.* and templates)
+    const isEnvFile =
+      /^\.env(\.|$)/i.test(filename) ||
+      entry.path === '.env' ||
+      entry.path.startsWith('.env.')
+
+    // B. Cryptographic keys and certificates (.pem, .key, id_rsa, etc.)
+    const isKeyFile =
+      !isEnvFile &&
+      (/\.(pem|key|p12|pfx|pkcs12|kdbx)$/i.test(filename) ||
+        /^(id_rsa|id_dsa|id_ecdsa|id_ed25519|private[-_.]?key.*)$/i.test(filename))
+
+    // C. Credential configuration paths (credentials.json, service-account.json, etc.)
+    const isCredentialConfigFile =
+      !isEnvFile &&
+      !isKeyFile &&
+      (/(credentials?|service[-_]?account|client[-_]?secret|oauth[-_]?secret)\.(json|ya?ml|toml|ini|xml)$/i.test(filename) ||
+        /^secrets?\.(json|ya?ml|toml|ini|xml)$/i.test(filename))
+
+    if (!isEnvFile && !isKeyFile && !isCredentialConfigFile) continue
+
+    const extracted = files.find((f) => f.path === entry.path)
     let hasVerifiedSecrets = false
     if (extracted && extracted.content) {
       const detected = detectSecrets(extracted.content, extracted.path)
@@ -42,31 +68,56 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
       }
     }
 
-    const cleanPath = envFile.path.replace(/[^A-Za-z0-9]/g, '-')
     const severity: 'high' | 'medium' = hasVerifiedSecrets ? 'high' : 'medium'
-    const description = hasVerifiedSecrets
-      ? `Discovered tracked environment file \`${envFile.path}\` containing plaintext credentials.`
-      : `Discovered environment file \`${envFile.path}\` tracked in git tree. Environment files are typically intended for local runtime configuration. While no unmasked high-confidence secrets were verified in tracked content, committing configuration templates or local presets poses credential leakage risks upon subsequent edits.`
-    const recommendation = hasVerifiedSecrets
-      ? 'Rotate compromised credentials immediately under owner-controlled procedures, remove this file from git tracking (`git rm --cached`), and review git history.'
-      : 'Review file contents and git history under owner control. If sensitive values were previously committed, rotate them and remove the file from git tracking (`git rm --cached`).'
 
-    const id = envFile.path === '.env' ? 'sec-committed-env-file' : `sec-committed-env-file-${cleanPath}`
+    let id: string
+    let title: string
+    let description: string
+    let recommendation: string
+
+    if (isEnvFile) {
+      id = entry.path === '.env' ? 'sec-committed-env-file' : buildTrackedFileId('sec-committed-env-file', entry.path)
+      title = `Committed environment file: ${entry.path}`
+      description = hasVerifiedSecrets
+        ? `Discovered tracked environment file \`${entry.path}\` containing plaintext credentials.`
+        : `Discovered environment file \`${entry.path}\` tracked in git tree. Environment files are typically intended for local runtime configuration. While no unmasked high-confidence secrets were verified in tracked content, committing configuration templates or local presets poses credential leakage risks upon subsequent edits.`
+      recommendation = hasVerifiedSecrets
+        ? 'Rotate compromised credentials immediately under owner-controlled procedures, remove this file from git tracking (`git rm --cached`), and review git history.'
+        : 'Review file contents and git history under owner control. If sensitive values were previously committed, rotate them and remove the file from git tracking (`git rm --cached`).'
+    } else if (isKeyFile) {
+      id = buildTrackedFileId('sec-tracked-key-file', entry.path)
+      title = `Tracked cryptographic key file: ${entry.path}`
+      description = hasVerifiedSecrets
+        ? `Discovered tracked cryptographic key file \`${entry.path}\` containing plaintext private key or credentials.`
+        : `Discovered cryptographic key or certificate file \`${entry.path}\` tracked in git tree. While no private credential was verified from filename alone, committing key material poses security and metadata leakage risks.`
+      recommendation = hasVerifiedSecrets
+        ? 'Rotate exposed keys immediately under owner-controlled procedures, revoke compromised certificates, remove this file from git tracking (`git rm --cached`), and review git history.'
+        : 'Audit key and certificate material under owner control. Ensure private keys are never committed to source control and remove unnecessary key material from git tracking (`git rm --cached`).'
+    } else {
+      id = buildTrackedFileId('sec-tracked-credential-file', entry.path)
+      title = `Tracked credential configuration file: ${entry.path}`
+      description = hasVerifiedSecrets
+        ? `Discovered tracked credential configuration file \`${entry.path}\` containing plaintext credentials.`
+        : `Discovered credential configuration file \`${entry.path}\` tracked in git tree. While no unmasked high-confidence secrets were verified from filename alone, committing credential configuration files poses leakage risks upon subsequent edits.`
+      recommendation = hasVerifiedSecrets
+        ? 'Rotate compromised credentials immediately under owner-controlled procedures, remove this file from git tracking (`git rm --cached`), and review git history.'
+        : 'Review credential configuration and git history under owner control. Ensure secrets are loaded from runtime environment variables and remove the file from git tracking (`git rm --cached`).'
+    }
 
     findings.push({
       id,
       category: 'Security',
-      title: `Committed environment file: ${envFile.path}`,
+      title,
       description,
       severity,
       confidence: 'high',
-      evidence: [`Tracked in git tree: ${envFile.path}`],
-      location: envFile.path,
+      evidence: [`Tracked in git tree: ${entry.path}`],
+      location: entry.path,
       recommendation,
       source: 'repository',
       verification: 'verified',
-      filePath: envFile.path,
-      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${envFile.path}`, sensitiveValues),
+      filePath: entry.path,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${entry.path}`, sensitiveValues),
     })
   }
 
@@ -75,7 +126,6 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
     const candidates = detectSecrets(file.content, file.path)
     if (candidates.length === 0) continue
 
-    const lines = file.content.split('\n')
     const cleanPath = file.path.replace(/[^A-Za-z0-9]/g, '-')
 
     // Filter to deterministic findings only: omit placeholders, publishable keys, and uncertain tokens
@@ -116,7 +166,6 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
 
     for (const candidate of chosen) {
       const lineNum = candidate.lineStart
-      const lineText = lines[lineNum - 1] ?? ''
 
       let title = `Potential hardcoded secret in ${file.path}:${lineNum}`
       let description = `recognized credential format observed; validity not tested. Found potential plaintext credential in source code.`
@@ -179,7 +228,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
         description,
         severity,
         confidence: candidate.confidence,
-        evidence: [safeSnippet(lineText.trim(), 120, sensitiveValues, file.truncated)],
+        evidence: [file.truncated ? '[source evidence omitted: file content truncated]' : `${candidate.ruleId} pattern observed at lines ${candidate.lineStart}-${candidate.lineEnd}; value [redacted]. Validity not tested.`],
         location: `${file.path}:${lineNum}`,
         recommendation,
         source: 'repository',
@@ -209,7 +258,7 @@ export function checkSecurity(ctx: AnalysisContext): AnalysisFinding[] {
           description: 'Use of `eval()` or `new Function()` allows arbitrary code execution and introduces injection vulnerabilities.',
           severity: 'high',
           confidence: 'high',
-          evidence: [safeSnippet(line.trim(), 120, sensitiveValues, file.truncated)],
+          evidence: [file.truncated ? '[source evidence omitted: file content truncated]' : `Dynamic evaluation syntax observed at line ${lineNum}; source arguments withheld.`],
           location: `${file.path}:${lineNum}`,
           recommendation: 'Refactor dynamic execution to use safe parsers or structured lookup dictionaries.',
           source: 'repository',

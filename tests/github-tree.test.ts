@@ -103,7 +103,7 @@ describe('fetchTree', () => {
       .rejects.toThrow(GitHubRateLimitError)
   })
 
-  it('passes signal to fetch call', async () => {
+  it('passes effective combined signal to fetch call', async () => {
     const controller = new AbortController()
     let capturedSignal: AbortSignal | undefined | null
 
@@ -117,7 +117,63 @@ describe('fetchTree', () => {
 
     await fetchTree('octocat', 'hello-world', 'abc1234', 10, controller.signal)
 
-    expect(capturedSignal).toBe(controller.signal)
+    expect(capturedSignal).toBeDefined()
+    expect(capturedSignal?.aborted).toBe(false)
+    controller.abort()
+    expect(capturedSignal?.aborted).toBe(true)
+  })
+
+  it('times out stalled headers when caller signal is unaborted', async () => {
+    vi.useFakeTimers()
+    try {
+      const callerController = new AbortController()
+
+      globalThis.fetch = vi.fn().mockImplementation((_url, init) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(init.signal.reason || new Error('Aborted'))
+          })
+        })
+      }) as unknown as typeof fetch
+
+      const treePromise = fetchTree('octocat', 'hello-world', 'abc1234', 10, callerController.signal)
+      const assertion = expect(treePromise).rejects.toThrow(/timed out after 10s/)
+
+      await vi.advanceTimersByTimeAsync(10_001)
+      await assertion
+      expect(callerController.signal.aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('times out stalled body stream when caller signal is unaborted and leaves no unhandled promises', async () => {
+    vi.useFakeTimers()
+    try {
+      const callerController = new AbortController()
+
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(10))
+          // stalls and never closes
+        },
+      })
+
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        body: stream,
+      }) as unknown as typeof fetch
+
+      const treePromise = fetchTree('octocat', 'hello-world', 'abc1234', 10, callerController.signal)
+      const assertion = expect(treePromise).rejects.toThrow(/timed out after 10s/)
+
+      await vi.advanceTimersByTimeAsync(10_001)
+      await assertion
+      expect(callerController.signal.aborted).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('throws GitHubApiError on 404', async () => {

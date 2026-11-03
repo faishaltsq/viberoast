@@ -14,7 +14,7 @@ describe('extractFiles', () => {
         }
       }
       return {
-        content: Buffer.from('console.log("b");').toString('base64'),
+        content: 'console.log("b");',
         size: 17,
         truncated: false,
       }
@@ -38,6 +38,21 @@ describe('extractFiles', () => {
     fetchSpy.mockRestore()
   })
 
+  it('keeps base64-looking source code intact without heuristic double-decoding', async () => {
+    const base64Literal = 'const greeting = "SGVsbG8gV29ybGQ=";'
+    const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockResolvedValue({
+      content: base64Literal,
+      size: base64Literal.length,
+      truncated: false,
+    })
+
+    const files: RepoFile[] = [{ path: 'test.ts', type: 'file', size: base64Literal.length }]
+    const result = await extractFiles('owner', 'repo', 'sha123', files, 100_000, 10_000)
+
+    expect(result.files[0].content).toBe(base64Literal)
+    fetchSpy.mockRestore()
+  })
+
   it('truncates file when decoded size exceeds maxBytesPerFile and sets flags', async () => {
     const largeContent = 'x'.repeat(100)
     const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockResolvedValue({
@@ -50,7 +65,7 @@ describe('extractFiles', () => {
     const result = await extractFiles('owner', 'repo', 'sha123', files, 1000, 40)
 
     expect(result.contentTruncated).toBe(true)
-    expect(result.bytesInspected).toBe(100) // Pre-truncation original size
+    expect(result.bytesInspected).toBe(40)
     expect(result.files[0]).toEqual({
       path: 'big.txt',
       size: 100,
@@ -62,8 +77,8 @@ describe('extractFiles', () => {
   })
 
   it('stops fetching new files when bytesInspected >= maxBytesTotal', async () => {
-    const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockImplementation(async (_o, _r, path) => ({
-      content: path,
+    const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockImplementation(async () => ({
+      content: 'x'.repeat(60),
       size: 60,
       truncated: false,
     }))
@@ -74,11 +89,11 @@ describe('extractFiles', () => {
       { path: '3.ts', type: 'file', size: 60 },
     ]
 
-    // Budget is 100. File 1 brings bytes to 60 (< 100). File 2 brings bytes to 120 (>= 100). File 3 must not be fetched.
+    // Budget is 100. File 1 brings bytes to 60 (< 100). File 2 brings bytes to 100 (clipped to remaining budget 40). File 3 must not be fetched.
     const result = await extractFiles('owner', 'repo', 'sha123', files, 100, 1000)
 
     expect(fetchSpy).toHaveBeenCalledTimes(2)
-    expect(result.bytesInspected).toBe(120)
+    expect(result.bytesInspected).toBe(100)
     expect(result.files).toHaveLength(2)
 
     fetchSpy.mockRestore()
@@ -166,6 +181,68 @@ describe('extractFiles', () => {
     expect(/[\uD800-\uDBFF]$/.test(result.files[0].content)).toBe(false)
 
     fetchSpy.mockRestore()
+  })
+
+  it('trims at valid UTF-8 boundary when emoji crosses per-file 1, 2, or 3 byte budget without replacement expansion', async () => {
+    // 4-byte emoji 🚀 is \xF0\x9F\x9A\x80
+    // Test budgets that cut into the emoji at 1, 2, and 3 bytes
+    for (const cutBytes of [1, 2, 3]) {
+      const prefix = 'abc' // 3 bytes
+      const emoji = '🚀' // 4 bytes
+      const content = `${prefix}${emoji}tail`
+      const cap = 3 + cutBytes // 4, 5, or 6 bytes (cutting emoji at 1, 2, 3 bytes)
+
+      const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockResolvedValue({
+        content,
+        size: Buffer.byteLength(content, 'utf8'),
+        truncated: false,
+      })
+
+      const files: RepoFile[] = [{ path: `emoji-${cutBytes}.ts`, type: 'file', size: Buffer.byteLength(content, 'utf8') }]
+      const result = await extractFiles('owner', 'repo', 'sha123', files, 10_000, cap)
+
+      const admittedBytes = Buffer.byteLength(result.files[0].content, 'utf8')
+      expect(admittedBytes).toBeLessThanOrEqual(cap)
+      // Must not contain replacement character U+FFFD
+      expect(result.files[0].content).not.toContain('\uFFFD')
+      expect(result.files[0].content).toBe('abc')
+      expect(result.bytesInspected).toBe(3)
+      expect(result.bytesInspected).toBeLessThanOrEqual(cap)
+
+      fetchSpy.mockRestore()
+    }
+  })
+
+  it('trims at valid UTF-8 boundary when emoji crosses remaining total budget at 1, 2, or 3 bytes', async () => {
+    // File 1 consumes 10 bytes out of total budget (10 + cutBytes)
+    for (const cutBytes of [1, 2, 3]) {
+      const totalBudget = 10 + cutBytes
+      const file1Content = '0123456789' // exactly 10 bytes
+      const file2Content = '🚀overflow' // 4-byte emoji at start
+
+      const fetchSpy = vi.spyOn(client, 'fetchFileContent').mockImplementation(async (_o, _r, path) => {
+        if (path === 'file1.ts') {
+          return { content: file1Content, size: 10, truncated: false }
+        }
+        return { content: file2Content, size: Buffer.byteLength(file2Content, 'utf8'), truncated: false }
+      })
+
+      const files: RepoFile[] = [
+        { path: 'file1.ts', type: 'file', size: 10 },
+        { path: 'file2.ts', type: 'file', size: Buffer.byteLength(file2Content, 'utf8') },
+      ]
+
+      const result = await extractFiles('owner', 'repo', 'sha123', files, totalBudget, 1000)
+
+      expect(result.bytesInspected).toBeLessThanOrEqual(totalBudget)
+      const f2 = result.files.find((f) => f.path === 'file2.ts')
+      if (f2) {
+        expect(Buffer.byteLength(f2.content, 'utf8')).toBeLessThanOrEqual(cutBytes)
+        expect(f2.content).not.toContain('\uFFFD')
+      }
+
+      fetchSpy.mockRestore()
+    }
   })
 
   it('direct-unions preharvested unclippedSensitiveValues from fetchFileContent result', async () => {

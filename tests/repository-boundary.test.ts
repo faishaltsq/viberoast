@@ -295,6 +295,39 @@ describe('repository report public boundary', () => {
       expect(safeSummary).not.toContain('MIIEowIBAAKCAQEA0Y3J1gR4Xk5vM8m+9mK1L2P3Q4R5S6T7U8V9W0X1Y2Z3A4B5')
       expect(safeSummary).toContain('[redacted]')
     })
+
+    it('harvests credentials from assignments and redacts them at boundary without quadratic delays on crafted inputs', () => {
+      const source = `
+        const SuperSecretPass = "AlphaOmegaSecret987!";
+        const api_secret = "dK8#mP2$vL9*xQ5&zR1!tY7^wE3~sB0+";
+      `
+      const values = collectSensitiveValues([source])
+      expect(values).toContain('AlphaOmegaSecret987!')
+      expect(values).toContain('dK8#mP2$vL9*xQ5&zR1!tY7^wE3~sB0+')
+
+      const commentary = `Exposed AlphaOmegaSecret987! and dK8#mP2$vL9*xQ5&zR1!tY7^wE3~sB0+ in config.`
+      const redacted = safeSnippet(commentary, 200, values)
+      expect(redacted).not.toContain('AlphaOmegaSecret987!')
+      expect(redacted).not.toContain('dK8#mP2$vL9*xQ5&zR1!tY7^wE3~sB0+')
+      expect(redacted).toContain('[redacted]')
+
+      const hostile = 'a$'.repeat(16384)
+      const safe = safeSnippet(hostile, 200, values)
+      expect(safe.length).toBeLessThanOrEqual(200)
+    })
+
+    it('harvests and redacts nested object and JSON credentials at boundary leaving no raw fragments public', () => {
+      const nestedWrapper = 'const runtimeConfig = {databasePassword: "rose-orchid-72", client_secret: "nested-secret-value-888"};'
+      const values = collectSensitiveValues([nestedWrapper])
+      expect(values).toContain('rose-orchid-72')
+      expect(values).toContain('nested-secret-value-888')
+
+      const publicSummary = 'Found databasePassword rose-orchid-72 and client_secret nested-secret-value-888 in config'
+      const redacted = safeSnippet(publicSummary, 200, values)
+      expect(redacted).not.toContain('rose-orchid-72')
+      expect(redacted).not.toContain('nested-secret-value-888')
+      expect(redacted).toContain('[redacted]')
+    })
   })
 
   describe('GitHub permalink SHA preservation and path redaction (Finding 4)', () => {

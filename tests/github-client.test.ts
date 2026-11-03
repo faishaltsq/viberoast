@@ -173,4 +173,87 @@ describe('GitHub Client', () => {
 
     await expect(fetchRepoMeta('octocat', 'repo', controller.signal)).rejects.toThrow()
   })
+
+  it('throws 413 when response body stream exceeds 200 KiB (204,800 bytes)', async () => {
+    const hugeChunk = new Uint8Array(204_801)
+    const stream = new ReadableStream({
+      start(c) {
+        c.enqueue(hugeChunk)
+        c.close()
+      },
+    })
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+    )
+
+    await expect(fetchFileContent('octocat', 'repo', 'huge.json', 'sha-1')).rejects.toThrow(GitHubApiError)
+  })
+
+  it('supports custom maxFileSize up to 128 KiB without truncation', async () => {
+    const text40k = 'b'.repeat(40_000)
+    const b64 = Buffer.from(text40k, 'utf8').toString('base64')
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: 'file',
+          encoding: 'base64',
+          content: b64,
+          size: 40_000,
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } }
+      )
+    )
+
+    const result = await fetchFileContent('octocat', 'repo', 'custom.txt', 'sha-1', undefined, 131_072)
+    expect(result.content.length).toBe(40_000)
+    expect(result.size).toBe(40_000)
+    expect(result.truncated).toBe(false)
+  })
+
+  it('times out during body read when stream stalls', async () => {
+    vi.useFakeTimers()
+    try {
+      const stream = new ReadableStream({
+        start(controller) {
+          controller.enqueue(new Uint8Array(10))
+          // Stalls and never closes
+        },
+      })
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(stream, { status: 200, headers: { 'content-type': 'application/json' } })
+      )
+
+      const assertion = expect(fetchFileContent('octocat', 'repo', 'stall.json', 'sha-1')).rejects.toThrow(/timed out after 10s/)
+      await vi.advanceTimersByTimeAsync(10_001)
+      await assertion
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('trims UTF-8 without inserting replacement character when emoji crosses custom maxBytes', async () => {
+    // 4-byte emoji 🚀
+    for (const cutBytes of [1, 2, 3]) {
+      const cap = 3 + cutBytes // 4, 5, 6 bytes
+      const rawText = 'abc🚀tail'
+      const b64 = Buffer.from(rawText, 'utf8').toString('base64')
+
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            type: 'file',
+            encoding: 'base64',
+            content: b64,
+            size: Buffer.byteLength(rawText, 'utf8'),
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        )
+      )
+
+      const result = await fetchFileContent('octocat', 'repo', 'emoji.txt', 'sha-1', undefined, cap)
+      expect(Buffer.byteLength(result.content, 'utf8')).toBeLessThanOrEqual(cap)
+      expect(result.content).toBe('abc')
+      expect(result.content).not.toContain('\uFFFD')
+    }
+  })
 })

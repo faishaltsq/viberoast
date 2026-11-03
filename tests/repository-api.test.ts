@@ -733,4 +733,174 @@ describe('repository roast API boundary', () => {
     expect(JSON.stringify(getBody)).not.toContain(fullPassword)
     expect(JSON.stringify(getBody)).not.toContain(pemLineEcho)
   })
+
+  it('guarantees new securityFindings and securityCoverage fields are secret-free across model args, store, POST, and GET', async () => {
+    const rawSecret = 'ghp_' + 'Secr'.repeat(9)
+    const { POST, meta, fetchFileContent, tree, ai, store } = await loadModules()
+
+    meta.mockResolvedValue({
+      owner: 'octocat',
+      repo: 'hello-world',
+      sha: '1111222233334444555566667777888899990000',
+      defaultBranch: 'main',
+      description: 'Test repository',
+      language: 'TypeScript',
+      stargazerCount: 10,
+      forkCount: 1,
+    })
+
+    tree.mockResolvedValue({
+      files: [
+        { path: 'src/index.ts', type: 'file', size: 50 },
+        { path: 'server/credentials.ts', type: 'file', size: 100 },
+      ],
+      truncated: false,
+    })
+
+    fetchFileContent.mockImplementation(async (_owner, _repo, path) => {
+      if (path === 'server/credentials.ts') {
+        const content = `const secret = "${rawSecret}";\n`
+        return {
+          content,
+          size: content.length,
+          truncated: false,
+          unclippedSensitiveValues: [rawSecret],
+        }
+      }
+      return {
+        content: 'console.log("clean");\n',
+        size: 22,
+        truncated: false,
+      }
+    })
+
+    let modelArgsScan: RepoScanResult | null = null
+    ai.mockImplementation(async (scan) => {
+      modelArgsScan = scan
+      return {
+        commentary: {
+          verdict: {
+            headline: 'Safe headline',
+            summary: 'Safe summary',
+            developerNickname: 'Safe Dev',
+            reaction: 'suspicious',
+          },
+          findings: [],
+          strengths: [],
+          overallSummary: 'Safe summary',
+        },
+        visualAnalysis: false,
+      }
+    })
+
+    const response = await POST(postRequest(validTarget))
+    expect(response.status).toBe(200)
+    const postBody = await response.json()
+
+    // 1. Model arguments verification
+    expect(modelArgsScan).not.toBeNull()
+    expect(modelArgsScan!.securityCoverage).toBeDefined()
+    expect(modelArgsScan!.securityFindings).toBeDefined()
+    expect(JSON.stringify(modelArgsScan!.securityFindings)).not.toContain(rawSecret)
+    expect(JSON.stringify(modelArgsScan!.securityCoverage)).not.toContain(rawSecret)
+
+    // 2. POST response verification
+    expect(postBody.repoScan.securityCoverage).toBeDefined()
+    expect(postBody.repoScan.securityFindings).toBeDefined()
+    expect(JSON.stringify(postBody.repoScan.securityFindings)).not.toContain(rawSecret)
+    expect(JSON.stringify(postBody.repoScan.securityCoverage)).not.toContain(rawSecret)
+    expect(postBody.repoScan.securityCoverage.filesDiscovered).toBe(2)
+    expect(postBody.repoScan.securityCoverage.statusCounts.inspected).toBeGreaterThanOrEqual(1)
+
+    // 3. Store verification
+    const stored = store.getReport(postBody.id)
+    expect(stored).toBeDefined()
+    expect(stored && 'repoScan' in stored && stored.repoScan).toBeTruthy()
+    if (stored && 'repoScan' in stored && stored.repoScan) {
+      expect(stored.repoScan.securityCoverage).toBeDefined()
+      expect(stored.repoScan.securityFindings).toBeDefined()
+      expect(JSON.stringify(stored.repoScan.securityFindings)).not.toContain(rawSecret)
+      expect(JSON.stringify(stored.repoScan.securityCoverage)).not.toContain(rawSecret)
+    }
+
+    // 4. GET response verification
+    const { GET } = await import('../app/api/repository/roast/[id]/route')
+    const getRes = await GET(new Request('http://localhost'), { params: Promise.resolve({ id: postBody.id }) })
+    expect(getRes.status).toBe(200)
+    const getBody = await getRes.json()
+    expect(getBody.repoScan.securityCoverage).toBeDefined()
+    expect(getBody.repoScan.securityFindings).toBeDefined()
+    expect(JSON.stringify(getBody.repoScan.securityFindings)).not.toContain(rawSecret)
+    expect(JSON.stringify(getBody.repoScan.securityCoverage)).not.toContain(rawSecret)
+  })
+
+  it('exposes explicit total and omitted security findings counts with deterministic priority when findings exceed 100 without losing scope', async () => {
+    const { POST, meta, fetchFileContent, tree, ai } = await loadModules()
+
+    meta.mockResolvedValue({
+      owner: 'octocat',
+      repo: 'hello-world',
+      sha: '1111222233334444555566667777888899990000',
+      defaultBranch: 'main',
+      description: 'Many secrets repo',
+      language: 'TypeScript',
+      stargazerCount: 1,
+      forkCount: 0,
+    })
+
+    // 105 files that will each trigger a filename security finding across tree entries
+    const treeFiles = Array.from({ length: 105 }, (_, i) => ({
+      path: `packages/pkg-${String(i).padStart(3, '0')}/.env`,
+      type: 'file' as const,
+      size: 50,
+    }))
+    tree.mockResolvedValue({
+      files: treeFiles,
+      truncated: false,
+    })
+
+    fetchFileContent.mockImplementation(async () => ({
+      content: `PORT=3000\n`,
+      size: 10,
+      truncated: false,
+    }))
+
+    ai.mockResolvedValue({
+      commentary: {
+        verdict: {
+          headline: 'Safe headline',
+          summary: 'Safe summary',
+          developerNickname: 'Safe Dev',
+          reaction: 'suspicious',
+        },
+        findings: [],
+        strengths: [],
+        overallSummary: 'Safe summary',
+      },
+      visualAnalysis: false,
+    })
+
+    const response = await POST(postRequest(validTarget))
+    expect(response.status).toBe(200)
+    const postBody = await response.json()
+
+    // Deterministic priority and cap
+    expect(postBody.repoScan.securityFindings).toHaveLength(100)
+    expect(postBody.repoScan.totalSecurityFindings).toBe(105)
+    expect(postBody.repoScan.omittedSecurityFindings).toBe(5)
+    expect(postBody.repoScan.securityCoverage?.totalSecurityFindings).toBe(105)
+    expect(postBody.repoScan.securityCoverage?.omittedSecurityFindings).toBe(5)
+
+    // No misleading lost security scope warning
+    const warningsText = JSON.stringify(postBody.repoScan.warnings || [])
+    expect(warningsText.toLowerCase()).not.toContain('lost security scope')
+
+    // GET response verification
+    const { GET } = await import('../app/api/repository/roast/[id]/route')
+    const getRes = await GET(new Request('http://localhost'), { params: Promise.resolve({ id: postBody.id }) })
+    expect(getRes.status).toBe(200)
+    const getBody = await getRes.json()
+    expect(getBody.repoScan.totalSecurityFindings).toBe(105)
+    expect(getBody.repoScan.omittedSecurityFindings).toBe(5)
+  })
 })

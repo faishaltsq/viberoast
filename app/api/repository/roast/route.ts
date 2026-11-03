@@ -5,8 +5,11 @@ import { fetchRepoMeta } from '@/lib/github/client'
 import { fetchTree } from '@/lib/github/tree'
 import { selectFiles } from '@/lib/github/select-files'
 import { extractFiles } from '@/lib/github/extract'
+import { scanSecurityFiles } from '@/lib/github/security-scan'
 import { type RepoScanResult, intensitySchema, languageSchema, type RoastReport, type Commentary } from '@/lib/types/report'
-import { analyzeRepository } from '@/lib/analysis/repository'
+import { analyzeRepository, validateFinding } from '@/lib/analysis/repository'
+import { checkSecurity } from '@/lib/analysis/checks/security'
+import { deduplicateFindings } from '@/lib/analysis/deduplicate'
 import { generateRepoRoast } from '@/lib/ai/deepseek'
 import { assertSameOrigin, errorResponse, HttpError, json, readJson } from '@/lib/server/http'
 import { acquireScan, assertDeployment, reportExpiry, retainReport } from '@/lib/server/store'
@@ -72,7 +75,7 @@ export async function POST(request: Request): Promise<Response> {
       maxBytesPerFile: 32_768,
     })
     
-    // Extract file contents
+    // Extract file contents for quality sampling
     const extraction = await extractFiles(
       parsed.owner,
       parsed.repo,
@@ -84,16 +87,31 @@ export async function POST(request: Request): Promise<Response> {
     )
     
     routeSignal.throwIfAborted()
+
+    // Independent wider security scan (caps: 100 files, 2 MiB, 128 KiB per file, 30s)
+    const securityScan = await scanSecurityFiles(
+      parsed.owner,
+      parsed.repo,
+      sha,
+      tree,
+      routeSignal,
+      extraction.files,
+      { treeTruncated }
+    )
+
+    routeSignal.throwIfAborted()
     
     // Collect request-local sensitive values: direct union of pre-harvested unclipped values and raw scan inputs
     const harvestedValues = collectSensitiveValues([
       ...extraction.files.map(f => f.content),
+      ...securityScan.files.map(f => f.content),
       meta.description,
       parsed.owner,
       parsed.repo,
     ])
     const sensitiveValues = Array.from(new Set([
       ...(extraction.unclippedSensitiveValues ?? []),
+      ...(securityScan.unclippedSensitiveValues ?? []),
       ...harvestedValues,
     ]))
 
@@ -111,6 +129,45 @@ export async function POST(request: Request): Promise<Response> {
       contentTruncated,
       sensitiveValues,
     })
+
+    // Run deterministic security check on wider security files + all tree filenames (separate from quality top 12)
+    const secCtx = {
+      owner: parsed.owner,
+      repo: parsed.repo,
+      sha,
+      tree,
+      files: securityScan.files,
+      meta,
+      treeTruncated,
+      contentTruncated: securityScan.coverage.contentTruncated,
+      sensitiveValues,
+    }
+    const rawSecFindings = checkSecurity(secCtx).map((f) => validateFinding(f, secCtx))
+    const dedupedSecFindings = deduplicateFindings(rawSecFindings)
+    const severityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 }
+    const verificationOrder: Record<string, number> = { verified: 0, heuristic: 1, inconclusive: 2 }
+    const sortedSecFindings = [...dedupedSecFindings].sort((a, b) => {
+      const sevDiff = (severityOrder[a.severity] ?? 2) - (severityOrder[b.severity] ?? 2)
+      if (sevDiff !== 0) return sevDiff
+      const verDiff = (verificationOrder[a.verification] ?? 1) - (verificationOrder[b.verification] ?? 1)
+      if (verDiff !== 0) return verDiff
+      return a.id.localeCompare(b.id)
+    })
+    const totalSecurityFindings = sortedSecFindings.length
+    const securityFindings = sortedSecFindings.slice(0, 100)
+    const omittedSecurityFindings = Math.max(0, totalSecurityFindings - securityFindings.length)
+
+    // Append scope warnings for tree truncation, deadline exhaustion, or unavailable files
+    const combinedWarnings = [...analysis.warnings]
+    if (treeTruncated && !combinedWarnings.some((w) => w.includes('2,000 files'))) {
+      combinedWarnings.push('Repository tree truncated at 2,000 files; security coverage of remaining files is unknown.')
+    }
+    if (securityScan.coverage.deadlineExceeded && !combinedWarnings.some((w) => w.includes('30-second deadline'))) {
+      combinedWarnings.push('Security scan reached 30-second deadline; remaining files were skipped.')
+    }
+    if (securityScan.coverage.statusCounts.unavailable > 0 && !combinedWarnings.some((w) => w.includes('unavailable during security scan'))) {
+      combinedWarnings.push(`${securityScan.coverage.statusCounts.unavailable} file(s) unavailable during security scan.`)
+    }
 
     // Project safe scan metadata without source content before AI model call
     const rawScan = {
@@ -138,9 +195,22 @@ export async function POST(request: Request): Promise<Response> {
         treeTruncated,
         contentTruncated,
       },
+      securityCoverage: {
+        ...securityScan.coverage,
+        totalSecurityFindings,
+        omittedSecurityFindings,
+        findingsSummary: {
+          total: totalSecurityFindings,
+          admitted: securityFindings.length,
+          omitted: omittedSecurityFindings,
+        },
+      },
       findings: analysis.findings,
+      securityFindings,
+      totalSecurityFindings,
+      omittedSecurityFindings,
       strengths: analysis.strengths,
-      warnings: analysis.warnings,
+      warnings: combinedWarnings.slice(0, 20),
       evidenceSummary: analysis.evidenceSummary,
     }
 

@@ -3,10 +3,13 @@ import {
   commentarySchema,
   repoReportSchema,
   repoScanSchema,
+  securityCoverageSchema,
   type Commentary,
   type Finding,
   type RepoScanResult,
   type RepositoryReport,
+  type SecurityCoverage,
+  type SecurityContentStatus,
 } from '@/lib/types/report'
 import { redactSecrets } from './redact'
 
@@ -128,6 +131,147 @@ function sanitizeCommentary(raw: unknown, sensitiveValues?: readonly string[]): 
   return commentarySchema.parse(projected)
 }
 
+function sanitizeSecurityCoverage(
+  raw: unknown,
+  sensitiveValues?: readonly string[]
+): SecurityCoverage {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new Error('Invalid security coverage data')
+  }
+  const c = raw as Record<string, unknown>
+  const caps = typeof c.caps === 'object' && c.caps !== null ? (c.caps as Record<string, unknown>) : {}
+  const statusCounts =
+    typeof c.statusCounts === 'object' && c.statusCounts !== null
+      ? (c.statusCounts as Record<string, unknown>)
+      : typeof c.counts === 'object' && c.counts !== null
+        ? (c.counts as Record<string, unknown>)
+        : {}
+
+  const rawFileStatuses = Array.isArray(c.fileStatuses)
+    ? c.fileStatuses
+    : Array.isArray(c.statuses)
+      ? c.statuses
+      : Array.isArray(c.files)
+        ? c.files
+        : []
+
+  const fileStatuses = rawFileStatuses.slice(0, 2000).map((item) => {
+    if (typeof item !== 'object' || item === null) throw new Error('Invalid file status')
+    const it = item as Record<string, unknown>
+    return {
+      path: cleanString(it.path, 500, sensitiveValues),
+      status: it.status as SecurityContentStatus,
+      size: typeof it.size === 'number' && Number.isFinite(it.size) ? Math.max(0, Math.floor(it.size)) : undefined,
+      inspectedBytes:
+        typeof it.inspectedBytes === 'number' && Number.isFinite(it.inspectedBytes)
+          ? Math.max(0, Math.floor(it.inspectedBytes))
+          : undefined,
+    }
+  })
+
+  const inspected =
+    typeof statusCounts.inspected === 'number' && Number.isFinite(statusCounts.inspected)
+      ? Math.max(0, Math.floor(statusCounts.inspected))
+      : 0
+  const filenameOnly =
+    typeof statusCounts['filename-only'] === 'number' && Number.isFinite(statusCounts['filename-only'])
+      ? Math.max(0, Math.floor(statusCounts['filename-only']))
+      : typeof statusCounts.filenameOnly === 'number' && Number.isFinite(statusCounts.filenameOnly)
+        ? Math.max(0, Math.floor(statusCounts.filenameOnly))
+        : 0
+  const skippedPolicy =
+    typeof statusCounts['skipped-policy'] === 'number' && Number.isFinite(statusCounts['skipped-policy'])
+      ? Math.max(0, Math.floor(statusCounts['skipped-policy']))
+      : typeof statusCounts.skippedPolicy === 'number' && Number.isFinite(statusCounts.skippedPolicy)
+        ? Math.max(0, Math.floor(statusCounts.skippedPolicy))
+        : 0
+  const skippedBudget =
+    typeof statusCounts['skipped-budget'] === 'number' && Number.isFinite(statusCounts['skipped-budget'])
+      ? Math.max(0, Math.floor(statusCounts['skipped-budget']))
+      : typeof statusCounts.skippedBudget === 'number' && Number.isFinite(statusCounts.skippedBudget)
+        ? Math.max(0, Math.floor(statusCounts.skippedBudget))
+        : 0
+  const oversized =
+    typeof statusCounts.oversized === 'number' && Number.isFinite(statusCounts.oversized)
+      ? Math.max(0, Math.floor(statusCounts.oversized))
+      : 0
+  const unavailable =
+    typeof statusCounts.unavailable === 'number' && Number.isFinite(statusCounts.unavailable)
+      ? Math.max(0, Math.floor(statusCounts.unavailable))
+      : 0
+
+  const projected = {
+    caps: {
+      maxFiles: typeof caps.maxFiles === 'number' ? Math.max(0, Math.floor(caps.maxFiles)) : 100,
+      maxBytesTotal: typeof caps.maxBytesTotal === 'number' ? Math.max(0, Math.floor(caps.maxBytesTotal)) : 2_097_152,
+      maxBytesPerFile:
+        typeof caps.maxBytesPerFile === 'number' ? Math.max(0, Math.floor(caps.maxBytesPerFile)) : 131_072,
+      timeoutMs:
+        typeof caps.timeoutMs === 'number'
+          ? Math.max(0, Math.floor(caps.timeoutMs))
+          : typeof caps.maxTimeMs === 'number'
+            ? Math.max(0, Math.floor(caps.maxTimeMs))
+            : 30_000,
+      ...(typeof caps.maxAttempts === 'number' ? { maxAttempts: Math.max(0, Math.floor(caps.maxAttempts)) } : {}),
+    },
+    filesDiscovered:
+      typeof c.filesDiscovered === 'number' && Number.isFinite(c.filesDiscovered)
+        ? Math.max(0, Math.floor(c.filesDiscovered))
+        : typeof c.filesEnumerated === 'number' && Number.isFinite(c.filesEnumerated)
+          ? Math.max(0, Math.floor(c.filesEnumerated))
+          : fileStatuses.length,
+    filesInspected:
+      typeof c.filesInspected === 'number' && Number.isFinite(c.filesInspected)
+        ? Math.max(0, Math.floor(c.filesInspected))
+        : 0,
+    ...(typeof c.filesAttempted === 'number' && Number.isFinite(c.filesAttempted)
+      ? { filesAttempted: Math.max(0, Math.floor(c.filesAttempted)) }
+      : typeof c.attemptsCount === 'number' && Number.isFinite(c.attemptsCount)
+        ? { filesAttempted: Math.max(0, Math.floor(c.attemptsCount)) }
+        : {}),
+    ...(typeof c.attemptsCount === 'number' && Number.isFinite(c.attemptsCount)
+      ? { attemptsCount: Math.max(0, Math.floor(c.attemptsCount)) }
+      : typeof c.filesAttempted === 'number' && Number.isFinite(c.filesAttempted)
+        ? { attemptsCount: Math.max(0, Math.floor(c.filesAttempted)) }
+        : {}),
+    bytesInspected:
+      typeof c.bytesInspected === 'number' && Number.isFinite(c.bytesInspected)
+        ? Math.max(0, Math.floor(c.bytesInspected))
+        : 0,
+    statusCounts: {
+      inspected,
+      'filename-only': filenameOnly,
+      'skipped-policy': skippedPolicy,
+      'skipped-budget': skippedBudget,
+      oversized,
+      unavailable,
+    },
+    fileStatuses,
+    treeTruncated: Boolean(c.treeTruncated),
+    contentTruncated: Boolean(c.contentTruncated),
+    deadlineExceeded: Boolean(c.deadlineExceeded),
+    budgetExceeded: Boolean(c.budgetExceeded ?? c.contentTruncated),
+    unknownRemaining: Boolean(c.unknownRemaining ?? c.unknownRemainder ?? c.treeTruncated),
+    ...(typeof c.totalSecurityFindings === 'number' && Number.isFinite(c.totalSecurityFindings)
+      ? { totalSecurityFindings: Math.max(0, Math.floor(c.totalSecurityFindings)) }
+      : {}),
+    ...(typeof c.omittedSecurityFindings === 'number' && Number.isFinite(c.omittedSecurityFindings)
+      ? { omittedSecurityFindings: Math.max(0, Math.floor(c.omittedSecurityFindings)) }
+      : {}),
+    ...(typeof c.findingsSummary === 'object' && c.findingsSummary !== null
+      ? {
+          findingsSummary: {
+            total: Math.max(0, Math.floor(Number((c.findingsSummary as Record<string, unknown>).total) || 0)),
+            admitted: Math.max(0, Math.floor(Number((c.findingsSummary as Record<string, unknown>).admitted) || 0)),
+            omitted: Math.max(0, Math.floor(Number((c.findingsSummary as Record<string, unknown>).omitted) || 0)),
+          },
+        }
+      : {}),
+  }
+
+  return securityCoverageSchema.parse(projected)
+}
+
 export function toPublicRepositoryScan(
   scan: unknown,
   sensitiveValues?: readonly string[]
@@ -211,6 +355,22 @@ export function toPublicRepositoryScan(
   const rawFindings = Array.isArray(s.findings) ? s.findings : []
   const findings = rawFindings.slice(0, 100).map(f => sanitizeFinding(f, sensitiveValues))
 
+  const rawSecurityFindings = Array.isArray(s.securityFindings) ? s.securityFindings : []
+  const securityFindings = rawSecurityFindings.slice(0, 100).map(f => sanitizeFinding(f, sensitiveValues))
+
+  const totalSecurityFindings =
+    typeof s.totalSecurityFindings === 'number' && Number.isFinite(s.totalSecurityFindings)
+      ? Math.max(0, Math.floor(s.totalSecurityFindings))
+      : undefined
+  const omittedSecurityFindings =
+    typeof s.omittedSecurityFindings === 'number' && Number.isFinite(s.omittedSecurityFindings)
+      ? Math.max(0, Math.floor(s.omittedSecurityFindings))
+      : undefined
+
+  const securityCoverage = s.securityCoverage !== undefined && s.securityCoverage !== null
+    ? sanitizeSecurityCoverage(s.securityCoverage, sensitiveValues)
+    : undefined
+
   const strengths = (Array.isArray(s.strengths) ? s.strengths : [])
     .slice(0, 12)
     .map(str => cleanString(str, 500, sensitiveValues))
@@ -238,6 +398,10 @@ export function toPublicRepositoryScan(
     selectedFiles,
     coverage,
     findings,
+    securityFindings,
+    ...(totalSecurityFindings !== undefined ? { totalSecurityFindings } : {}),
+    ...(omittedSecurityFindings !== undefined ? { omittedSecurityFindings } : {}),
+    ...(securityCoverage ? { securityCoverage } : {}),
     strengths,
     warnings,
     evidenceSummary,

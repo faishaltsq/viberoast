@@ -5,6 +5,7 @@
  */
 
 import { detectSecrets } from './detect'
+import { redactSecretAssignments } from './assignments'
 
 export function redactUrl(input: string, sensitiveValues?: readonly string[]): string {
   try {
@@ -52,8 +53,6 @@ export function redactUrl(input: string, sensitiveValues?: readonly string[]): s
     return '[invalid URL]'
   }
 }
-
-const SECRET_ASSIGNMENT = /\b(api[_-]?(?:key|secret)|access[_-]?token|refresh[_-]?token|token|authorization|auth[_-]?token|password|passwd|secret|client[_-]?secret|private[_-]?(?:key|token)|session[_-]?id|cookie|webhook[_-]?secret|aws[_-]?(?:secret[_-]?(?:access[_-]?)?key|key[_-]?id))["']?\s*[=:]\s*(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|[^\s"'<>,;}]+)/gi
 
 export function redactSecretText(text: string, sensitiveValues?: readonly string[]): string {
   if (typeof text !== 'string') return ''
@@ -124,7 +123,10 @@ export function redactSecretText(text: string, sensitiveValues?: readonly string
     .replace(/-----BEGIN (?:[A-Z0-9_-]+ )?PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END (?:[A-Z0-9_-]+ )?PRIVATE KEY(?: BLOCK)?-----|$)/g, '[private key redacted]')
     .replace(/\b(?:https?|postgres|postgresql|mongodb|redis|mysql):\/\/[^\s<>"']+/gi, (url) => redactUrl(url, valuesList))
     .replace(/\b(?:Bearer|Basic)\s+[^\s"'<>]+/gi, '[authorization redacted]')
-    .replace(SECRET_ASSIGNMENT, '$1=[redacted]')
+
+  result = redactSecretAssignments(result)
+
+  result = result
     .replace(/\beyJ[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\b/g, (token) => {
       if (publishableTokens.has(token)) {
         return token

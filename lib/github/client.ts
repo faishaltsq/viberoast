@@ -1,6 +1,7 @@
 import { GitHubApiError, GitHubRateLimitError } from './errors'
 import { recordGitHubRateLimit } from '../server/store'
 import { collectSensitiveValues } from '../security/redact'
+import { sliceUtf8String } from './utf8'
 
 export { GitHubApiError, GitHubRateLimitError } from './errors'
 
@@ -9,6 +10,10 @@ export interface FileContentResult {
   size: number
   truncated: boolean
   unclippedSensitiveValues?: string[]
+}
+
+export interface FetchFileContentOptions {
+  maxFileSize?: number
 }
 
 export interface GitHubRepoMeta {
@@ -23,17 +28,85 @@ export interface GitHubRepoMeta {
 
 const BASE_URL = 'https://api.github.com'
 const REQUEST_TIMEOUT_MS = 10_000
-const MAX_FILE_SIZE = 32_768
+export const MAX_FILE_SIZE = 32_768
+export const MAX_CONTENT_STREAM_BYTES = 200 * 1024 // 200 KiB base64/JSON stream cap
+export const MAX_META_STREAM_BYTES = 256 * 1024 // 256 KiB metadata stream cap
 
 interface GitHubRequestOptions {
   headers?: Record<string, string>
   signal?: AbortSignal
 }
 
-async function requestGitHub(
+async function readBoundedStream(
+  response: Response,
+  maxBytes: number,
+  signal?: AbortSignal
+): Promise<string> {
+  const body = response.body
+  if (!body || typeof body.getReader !== 'function') {
+    const text = await response.text()
+    if (Buffer.byteLength(text, 'utf8') > maxBytes) {
+      throw new GitHubApiError(413, `Response body exceeded ${maxBytes} bytes`)
+    }
+    return text
+  }
+
+  const reader = body.getReader()
+  const chunks: Uint8Array[] = []
+  let totalBytes = 0
+
+  const onAbort = () => {
+    reader.cancel(signal?.reason).catch(() => {})
+  }
+  if (signal) {
+    if (signal.aborted) {
+      reader.cancel(signal.reason).catch(() => {})
+      throw signal.reason || new Error('Request aborted')
+    }
+    signal.addEventListener('abort', onAbort, { once: true })
+  }
+
+  try {
+    while (true) {
+      if (signal?.aborted) {
+        throw signal.reason || new Error('Request aborted')
+      }
+      const { done, value } = await reader.read()
+      if (signal?.aborted) {
+        throw signal.reason || new Error('Request aborted')
+      }
+      if (done) break
+      if (value) {
+        totalBytes += value.byteLength
+        if (totalBytes > maxBytes) {
+          await reader.cancel(new Error(`Response body exceeded ${maxBytes} bytes`)).catch(() => {})
+          throw new GitHubApiError(413, `Response body exceeded ${maxBytes} bytes`)
+        }
+        chunks.push(value)
+      }
+    }
+    if (signal?.aborted) {
+      throw signal.reason || new Error('Request aborted')
+    }
+  } finally {
+    if (signal) {
+      signal.removeEventListener('abort', onAbort)
+    }
+    try {
+      reader.releaseLock()
+    } catch {
+      // ignore
+    }
+  }
+
+  return Buffer.concat(chunks).toString('utf8')
+}
+
+async function requestGitHubBoundedJson<T>(
   endpoint: string,
+  maxBodyBytes: number,
   options: GitHubRequestOptions = {}
-): Promise<Response> {
+): Promise<T> {
   const controller = new AbortController()
   const timer = setTimeout(() => {
     controller.abort(new Error('GitHub API request timed out after 10s'))
@@ -96,7 +169,7 @@ async function requestGitHub(
         throw new GitHubRateLimitError(retryAfter)
       }
 
-      const text = await response.text().catch(() => '')
+      const text = await readBoundedStream(response, maxBodyBytes, controller.signal).catch(() => '')
       let message = response.statusText || `Request failed with status ${response.status}`
       if (text) {
         try {
@@ -113,7 +186,8 @@ async function requestGitHub(
       throw new GitHubApiError(response.status, message)
     }
 
-    return response
+    const bodyText = await readBoundedStream(response, maxBodyBytes, controller.signal)
+    return JSON.parse(bodyText) as T
   } finally {
     clearTimeout(timer)
     if (userSignal) {
@@ -131,8 +205,7 @@ export async function fetchRepoMeta(
   const encOwner = encodeURIComponent(owner)
   const encRepo = encodeURIComponent(repo)
 
-  const res = await requestGitHub(`/repos/${encOwner}/${encRepo}`, { signal })
-  const data = (await res.json()) as {
+  const data = await requestGitHubBoundedJson<{
     owner?: { login?: string } | string
     name?: string
     repo?: string
@@ -147,7 +220,7 @@ export async function fetchRepoMeta(
     forkCount?: number
     sha?: string
     commit?: { sha?: string }
-  }
+  }>(`/repos/${encOwner}/${encRepo}`, MAX_META_STREAM_BYTES, { signal })
 
   const defaultBranch = data.default_branch ?? data.defaultBranch ?? 'main'
   let sha = typeof data.sha === 'string'
@@ -157,8 +230,11 @@ export async function fetchRepoMeta(
   // ponytail: secondary fetch for commit SHA when not embedded by API or test fixture
   if (!sha && defaultBranch) {
     try {
-      const commitRes = await requestGitHub(`/repos/${encOwner}/${encRepo}/commits/${encodeURIComponent(defaultBranch)}`, { signal })
-      const commitData = (await commitRes.json()) as { sha?: string }
+      const commitData = await requestGitHubBoundedJson<{ sha?: string }>(
+        `/repos/${encOwner}/${encRepo}/commits/${encodeURIComponent(defaultBranch)}`,
+        MAX_META_STREAM_BYTES,
+        { signal }
+      )
       if (typeof commitData.sha === 'string') {
         sha = commitData.sha
       }
@@ -189,21 +265,24 @@ export async function fetchFileContent(
   repo: string,
   path: string,
   sha: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  optionsOrMaxBytes?: FetchFileContentOptions | number
 ): Promise<FileContentResult> {
+  const maxBytes = typeof optionsOrMaxBytes === 'number'
+    ? optionsOrMaxBytes
+    : (optionsOrMaxBytes?.maxFileSize ?? MAX_FILE_SIZE)
   const encOwner = encodeURIComponent(owner)
   const encRepo = encodeURIComponent(repo)
   const normalizedPath = path.replace(/^\/+/, '')
   const cleanPath = normalizedPath.split('/').map(encodeURIComponent).join('/')
   const encSha = encodeURIComponent(sha)
 
-  const res = await requestGitHub(`/repos/${encOwner}/${encRepo}/contents/${cleanPath}?ref=${encSha}`, { signal })
-  const data = (await res.json()) as {
+  const data = await requestGitHubBoundedJson<{
     content?: string
     encoding?: string
     size?: number
     truncated?: boolean
-  } | Array<unknown>
+  } | Array<unknown>>(`/repos/${encOwner}/${encRepo}/contents/${cleanPath}?ref=${encSha}`, MAX_CONTENT_STREAM_BYTES, { signal })
 
   if (Array.isArray(data)) {
     throw new GitHubApiError(400, `Path '${path}' is a directory, not a file`)
@@ -217,16 +296,12 @@ export async function fetchFileContent(
   // Harvest sensitive values on full decoded content before any clipping
   const unclippedSensitiveValues = collectSensitiveValues([decoded])
 
-  const fullSize = typeof data.size === 'number' ? data.size : Buffer.byteLength(decoded, 'utf8')
-  const isTruncated = Boolean(data.truncated) || decoded.length > MAX_FILE_SIZE || fullSize > MAX_FILE_SIZE
-  // ponytail: 32 KiB cap aligns with repoScanSchema file size ceiling; upgrade to raw stream if larger inspections needed
+  const decodedByteLength = Buffer.byteLength(decoded, 'utf8')
+  const fullSize = typeof data.size === 'number' ? Math.max(data.size, decodedByteLength) : decodedByteLength
+  const isTruncated = Boolean(data.truncated) || decodedByteLength > maxBytes || fullSize > maxBytes
   let content = decoded
-  if (decoded.length > MAX_FILE_SIZE) {
-    let sliced = decoded.slice(0, MAX_FILE_SIZE)
-    if (/[\uD800-\uDBFF]$/.test(sliced)) {
-      sliced = sliced.slice(0, -1)
-    }
-    content = sliced
+  if (decodedByteLength > maxBytes) {
+    content = sliceUtf8String(decoded, maxBytes)
   }
 
   return {

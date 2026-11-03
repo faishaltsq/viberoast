@@ -4,6 +4,8 @@ import {
   classifySecret,
   redactSecretText,
   redactUrl,
+  parseSecretAssignments,
+  ASSIGNMENT_PARSER_REGEX,
 } from '../lib/security/secrets'
 import { collectSensitiveValues } from '../lib/security/redact'
 import { SECRET_RULES } from '../lib/security/secrets/patterns'
@@ -790,6 +792,86 @@ describe('Secret Detection & Classification Engine', () => {
       const redactedPub = redactSecretText(pubContent)
       expect(redactedPub).toContain(fixtures.STRIPE_PK_LIVE)
       expect(redactedPub).toContain(fixtures.SUPABASE_PUBLISHABLE)
+    })
+  })
+
+  describe('Adversarial non-quadratic assignment scanning and credential classification', () => {
+    it('handles modest adversarial a$ sequences within a strict time bound without hanging', () => {
+      const hostile = 'a$'.repeat(3000)
+      const t0 = performance.now()
+      const collected = collectSensitiveValues([hostile])
+      const redacted = redactSecretText(hostile)
+      const elapsed = performance.now() - t0
+
+      // Structural proof of non-backtracking and zero spurious captures
+      const matches = [...hostile.matchAll(ASSIGNMENT_PARSER_REGEX)]
+      expect(matches).toHaveLength(0)
+
+      const assignments = parseSecretAssignments(hostile)
+      expect(assignments).toHaveLength(0)
+
+      expect(collected).toEqual([])
+      expect(redacted).toBe(hostile)
+      expect(elapsed).toBeLessThan(250)
+    })
+
+    it('deterministically completes on 32k and 64k hostile inputs without catastrophic backtracking', () => {
+      const input32k = 'a$'.repeat(16384)
+      const input64k = 'a$'.repeat(32768)
+
+      // Structural iterator proofs on hostile 32k / 64k inputs
+      expect([...input32k.matchAll(ASSIGNMENT_PARSER_REGEX)]).toHaveLength(0)
+      expect(parseSecretAssignments(input32k)).toHaveLength(0)
+
+      const collected32k = collectSensitiveValues([input32k])
+      expect(collected32k).toHaveLength(0)
+
+      const redacted32k = redactSecretText(input32k)
+      expect(redacted32k).toBe(input32k)
+
+      expect([...input64k.matchAll(ASSIGNMENT_PARSER_REGEX)]).toHaveLength(0)
+      expect(parseSecretAssignments(input64k)).toHaveLength(0)
+
+      const collected64k = collectSensitiveValues([input64k])
+      expect(collected64k).toHaveLength(0)
+
+      const redacted64k = redactSecretText(input64k)
+      expect(redacted64k).toBe(input64k)
+    })
+
+    it('harvests and masks SuperSecretPass without assigning high severity by naming alone', () => {
+      const snippet = 'const SuperSecretPass = "SuperSecretPassphrase1234!"\n'
+      const collected = collectSensitiveValues([snippet])
+      expect(collected).toContain('SuperSecretPassphrase1234!')
+
+      const redacted = redactSecretText(snippet)
+      expect(redacted).not.toContain('SuperSecretPassphrase1234!')
+      expect(redacted).toContain('[redacted]')
+
+      const candidates = detectSecrets(snippet, 'src/auth.ts')
+      const recognized = candidates.filter((c) => c.classification === 'recognized')
+      expect(recognized).toHaveLength(0)
+    })
+
+    it('harvests and redacts nested credentials inside JS objects/JSON without skipping due to outer non-credential wrappers', () => {
+      const nestedJs = 'const config={databasePassword:"rose-orchid-72",apiKey:"secret-key-999"}\n'
+      const collected = collectSensitiveValues([nestedJs])
+      expect(collected).toContain('rose-orchid-72')
+      expect(collected).toContain('secret-key-999')
+
+      const redacted = redactSecretText(nestedJs)
+      expect(redacted).not.toContain('rose-orchid-72')
+      expect(redacted).not.toContain('secret-key-999')
+      expect(redacted).toContain('[redacted]')
+
+      const jsonConfig = '{"config":{"client_secret":"my-client-secret-val","auth_token":"token-xyz-123"}}'
+      const collectedJson = collectSensitiveValues([jsonConfig])
+      expect(collectedJson).toContain('my-client-secret-val')
+      expect(collectedJson).toContain('token-xyz-123')
+
+      const redactedJson = redactSecretText(jsonConfig)
+      expect(redactedJson).not.toContain('my-client-secret-val')
+      expect(redactedJson).not.toContain('token-xyz-123')
     })
   })
 })

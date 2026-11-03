@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { generatePrompt, PromptGenerationError } from '../lib/prompts/generate'
-import type { PromptOptions, RepositoryReport, RoastReport, WebsiteReport } from '../lib/types/report'
+import type { PromptOptions, RepositoryReport, WebsiteReport } from '../lib/types/report'
 
 function report(): WebsiteReport {
   return {
@@ -190,6 +190,7 @@ describe('deterministic implementation prompts', () => {
               verification: 'verified',
             },
           ],
+          securityFindings: [],
           strengths: ['TypeScript configured for static type safety.'],
           warnings: [],
           evidenceSummary: 'Repository scan for acme/widgets at commit 1111222.',
