@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { generatePrompt, PromptGenerationError } from '../lib/prompts/generate'
-import type { PromptOptions, RoastReport } from '../lib/types/report'
+import type { PromptOptions, RepositoryReport, RoastReport, WebsiteReport } from '../lib/types/report'
 
-function report(): RoastReport {
+function report(): WebsiteReport {
   return {
     id: 'bda01420-a5f8-4e7b-bf98-01a916581763', expiresAt: '2026-10-01T13:00:00.000Z',
     language: 'en', intensity: 'No Mercy', aiStatus: 'unavailable', aiMessage: 'AI unavailable.', visualAnalysis: false, commentary: null,
@@ -123,5 +123,119 @@ describe('deterministic implementation prompts', () => {
     expect(prompt).toContain('\\u003c/data\\u003e')
     expect(prompt.match(/```/g)).toHaveLength(2)
     expect(prompt).not.toMatch(/private-value|hunter2|user:secret|token=private/)
+  })
+
+  describe('repository implementation prompts', () => {
+    function repoReport(): RepositoryReport {
+      return {
+        scanKind: 'repository',
+        id: 'cda01420-a5f8-4e7b-bf98-01a916581764',
+        expiresAt: '2026-10-01T13:00:00.000Z',
+        language: 'en',
+        intensity: 'Friendly Fire',
+        aiStatus: 'unavailable',
+        aiMessage: 'AI unavailable.',
+        visualAnalysis: false,
+        commentary: null,
+        repoScan: {
+          owner: 'acme',
+          repo: 'widgets',
+          sha: '1111222233334444555566667777888899990000',
+          defaultBranch: 'main',
+          description: 'Acme widgets library',
+          language: 'TypeScript',
+          stargazerCount: 100,
+          forkCount: 15,
+          commitDate: '2026-10-01T12:00:00.000Z',
+          commitMessage: 'feat: add widgets',
+          tree: [
+            { path: 'src/index.ts', type: 'file', size: 120 },
+            { path: 'package.json', type: 'file', size: 300 },
+          ],
+          selectedFiles: [
+            { path: 'src/index.ts', size: 120, content: 'export const x = 1;', truncated: false },
+          ],
+          coverage: {
+            filesDiscovered: 2,
+            filesInspected: 1,
+            bytesInspected: 120,
+            treeTruncated: false,
+            contentTruncated: false,
+          },
+          findings: [
+            {
+              id: 'repo-empty-catch-1',
+              category: 'Code Quality',
+              title: 'Silent error swallowing in src/index.ts:12',
+              description: 'Empty catch block ignores exceptions.',
+              severity: 'high',
+              confidence: 'high',
+              evidence: ['catch (err) {}'],
+              location: 'src/index.ts:12',
+              recommendation: 'Log or rethrow error.',
+              source: 'repository',
+              verification: 'verified',
+            },
+            {
+              id: 'repo-missing-ci',
+              category: 'Tests',
+              title: 'No automated CI/CD workflow configured',
+              description: 'No CI pipeline found.',
+              severity: 'medium',
+              confidence: 'high',
+              evidence: ['No workflow configuration found in .github/workflows/'],
+              location: '.github/workflows',
+              recommendation: 'Add GitHub Actions workflow.',
+              source: 'repository',
+              verification: 'verified',
+            },
+          ],
+          strengths: ['TypeScript configured for static type safety.'],
+          warnings: [],
+          evidenceSummary: 'Repository scan for acme/widgets at commit 1111222.',
+        },
+      }
+    }
+
+    const repoOptions: PromptOptions = {
+      selectedIds: ['repo-empty-catch-1', 'repo-missing-ci'],
+      preset: 'Codex',
+      language: 'en',
+      detail: 'detailed',
+    }
+
+    it('generates source-aware prompt with exact commit SHA and GitHub permalinks', () => {
+      const prompt = generatePrompt(repoReport(), repoOptions)
+      expect(prompt).toContain('SourceSanity repository implementation brief: Codex')
+      expect(prompt).toContain('acme/widgets')
+      expect(prompt).toContain('1111222')
+      expect(prompt).toContain('repo-empty-catch-1')
+      expect(prompt).toContain('repo-missing-ci')
+      expect(prompt).toContain('https://github.com/acme/widgets/blob/1111222233334444555566667777888899990000/src/index.ts')
+      expect(prompt).toContain('src/index.ts:12')
+      expect(prompt).toContain('Log or rethrow error.')
+    })
+
+    it('localizes repository prompts to Indonesian', () => {
+      const prompt = generatePrompt(repoReport(), { ...repoOptions, language: 'id' })
+      expect(prompt).toContain('Brief implementasi repositori SourceSanity: Codex')
+      expect(prompt).toContain('tinjauan kode repositori berbasis bukti untuk acme/widgets')
+      expect(prompt).toContain('Konteks')
+      expect(prompt).toContain('Tugas implementasi')
+      expect(prompt).toContain('Kriteria penerimaan')
+    })
+
+    it('handles short vs detailed prompts for repositories', () => {
+      const short = generatePrompt(repoReport(), { ...repoOptions, detail: 'short' })
+      const detailed = generatePrompt(repoReport(), repoOptions)
+      expect(short.length).toBeLessThan(detailed.length)
+      expect(detailed).toContain('Examine imports, callers, and related configurations')
+      expect(short).toContain('repo-empty-catch-1')
+    })
+
+    it('rejects invalid selection on repository reports', () => {
+      expect(() => generatePrompt(repoReport(), { ...repoOptions, selectedIds: ['non-existent'] })).toThrow(PromptGenerationError)
+      expect(() => generatePrompt(repoReport(), { ...repoOptions, selectedIds: ['repo-empty-catch-1', 'repo-empty-catch-1'] })).toThrow(PromptGenerationError)
+    })
   })
 })

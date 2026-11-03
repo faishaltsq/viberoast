@@ -1,4 +1,11 @@
-import { promptOptionsSchema, reportSchema, type PromptOptions, type RoastReport } from '../types/report'
+import {
+  isRepositoryReport,
+  isWebsiteReport,
+  promptOptionsSchema,
+  reportSchema,
+  type PromptOptions,
+  type RoastReport,
+} from '../types/report'
 import { redactSecrets, redactUrl } from '../security/redact'
 import { SCORE_RULES } from '../roast/score'
 
@@ -73,45 +80,137 @@ const copy = {
   },
 } as const
 
+const repoCopy = {
+  en: {
+    title: 'SourceSanity repository implementation brief',
+    contextText: (owner: string, repo: string, sha: string) =>
+      `This is an evidence-grounded repository code review for ${owner}/${repo} at commit ${sha.slice(0, 7)}. Findings cite specific files, lines, and patterns discovered during static analysis. Work directly in the checked-out repository. Do not invent files, functions, dependencies, or imaginary test suites.`,
+    taskText: 'For each selected finding: open the cited file and line range, analyze the root cause, and apply the cleanest, minimal fix matching project conventions. Respect existing architecture and tests.',
+    detailedTask: 'Examine imports, callers, and related configurations before modifying code. Verify that type signatures and exported APIs remain backward-compatible.',
+    acceptText: 'All selected issues are resolved cleanly or documented with concrete reasons if blocked. No unintended regressions or unrelated refactoring introduced.',
+    testText: 'Run the project\'s existing test suite, linter, and typechecker (e.g. `npm test`, `npm run typecheck`, `pytest`, `cargo test`). Ensure all checks pass with the new changes.',
+    detailedTests: 'Add regression tests where missing to prevent the reported issues from recurring.',
+  },
+  id: {
+    title: 'Brief implementasi repositori SourceSanity',
+    contextText: (owner: string, repo: string, sha: string) =>
+      `Ini adalah tinjauan kode repositori berbasis bukti untuk ${owner}/${repo} pada commit ${sha.slice(0, 7)}. Temuan merujuk ke berkas, baris, dan pola spesifik yang terdeteksi saat analisis statis. Bekerjalah langsung di repositori terkait. Jangan mengarang berkas, fungsi, dependensi, atau pengujian fiktif.`,
+    taskText: 'Untuk setiap temuan terpilih: buka berkas dan rentang baris terkait, analisis penyebab utama, dan terapkan perbaikan terkecil yang sesuai konvensi proyek. Hormati arsitektur dan pengujian yang ada.',
+    detailedTask: 'Periksa impor, pemanggil, dan konfigurasi terkait sebelum mengubah kode. Pastikan tanda tangan tipe dan API publik tetap kompatibel.',
+    acceptText: 'Semua masalah yang dipilih terselesaikan dengan rapi atau dicatat dengan alasan konkret jika terhambat. Tidak ada regresi atau refaktor di luar cakupan.',
+    testText: 'Jalankan test suite, linter, dan pemeriksa tipe yang ada di proyek (misal `npm test`, `npm run typecheck`, `pytest`). Pastikan semua pemeriksaan hijau setelah perubahan.',
+    detailedTests: 'Tambahkan uji regresi bila diperlukan untuk mencegah masalah terulang kembali.',
+  },
+} as const
+
 export function generatePrompt(report: RoastReport, options: PromptOptions): string {
   const parsedOptions = promptOptionsSchema.strict().safeParse(options)
   const parsedReport = reportSchema.safeParse(report)
   if (!parsedOptions.success || !parsedReport.success) throw new PromptGenerationError()
+
   const { selectedIds, preset, language, detail } = parsedOptions.data
-  const scan = parsedReport.data.scan
-  const known = new Set(scan.findings.map((finding) => finding.id))
-  const selected = new Set(selectedIds)
-  if (known.size !== scan.findings.length || selected.size !== selectedIds.length || selectedIds.some((id) => !known.has(id))) {
-    throw new PromptGenerationError()
-  }
-  const verificationOrder = { verified: 0, heuristic: 1, inconclusive: 2 }
-  const severityOrder = { high: 0, medium: 1, low: 2 }
-  const findings = scan.findings.filter((finding) => selected.has(finding.id)).sort((a, b) => verificationOrder[a.verification] - verificationOrder[b.verification] || severityOrder[a.severity] - severityOrder[b.severity])
   const t = copy[language]
-  const evidence = {
-    target: redactUrl(scan.finalUrl), scannedAt: scan.scannedAt, status: scan.status,
-    warnings: scan.warnings.map(redactSecrets),
-    selectedIds: findings.map((finding) => finding.id),
-    findings: findings.map((finding) => ({
-      id: finding.id, category: finding.category, title: redactSecrets(finding.title),
-      severity: finding.severity, confidence: finding.confidence, verification: finding.verification,
-      source: finding.source, location: redactSecrets(finding.location),
-      evidence: finding.evidence.map(redactSecrets), recommendation: redactSecrets(finding.recommendation),
-      ...(detail === 'detailed' ? { description: redactSecrets(finding.description) } : {}),
-    })),
+
+  if (isRepositoryReport(parsedReport.data)) {
+    const scan = parsedReport.data.repoScan
+    const known = new Set(scan.findings.map((finding) => finding.id))
+    const selected = new Set(selectedIds)
+    if (known.size !== scan.findings.length || selected.size !== selectedIds.length || selectedIds.some((id) => !known.has(id))) {
+      throw new PromptGenerationError()
+    }
+    const verificationOrder = { verified: 0, heuristic: 1, inconclusive: 2 }
+    const severityOrder = { high: 0, medium: 1, low: 2 }
+    const findings = scan.findings
+      .filter((finding) => selected.has(finding.id))
+      .sort((a, b) => verificationOrder[a.verification] - verificationOrder[b.verification] || severityOrder[a.severity] - severityOrder[b.severity])
+    const rt = repoCopy[language]
+
+    const evidence = {
+      repository: `${scan.owner}/${scan.repo}`,
+      commitSha: scan.sha,
+      defaultBranch: scan.defaultBranch,
+      warnings: scan.warnings.map(redactSecrets),
+      coverage: scan.coverage,
+      selectedIds: findings.map((f) => f.id),
+      findings: findings.map((finding) => ({
+        id: finding.id,
+        category: finding.category,
+        title: redactSecrets(finding.title),
+        severity: finding.severity,
+        confidence: finding.confidence,
+        verification: finding.verification,
+        source: finding.source,
+        location: redactSecrets(finding.location),
+        evidence: finding.evidence.map(redactSecrets),
+        recommendation: redactSecrets(finding.recommendation),
+        ...(detail === 'detailed' ? { description: redactSecrets(finding.description) } : {}),
+        githubPermaUrl: `https://github.com/${scan.owner}/${scan.repo}/blob/${scan.sha}/${finding.location.split(':')[0]}`,
+      })),
+    }
+
+    const data = JSON.stringify(evidence, null, 2).replace(/`/g, '\\u0060').replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+    const sections = [
+      `# ${rt.title}: ${preset}`,
+      `## ${t.context}\n${presetInstructions[preset][language]}\n${rt.contextText(scan.owner, scan.repo, scan.sha)}\n${t.original}`,
+      `## ${t.priorities}\n${findings.length ? t.order : t.empty}`,
+      `## ${t.tasks}\n${rt.taskText}${detail === 'detailed' ? `\n${rt.detailedTask}` : ''}`,
+      `## ${t.design}\n${t.designText}`,
+      `## ${t.acceptance}\n${rt.acceptText}`,
+      `## ${t.tests}\n${rt.testText}${detail === 'detailed' ? `\n${rt.detailedTests}` : ''}`,
+      `## ${t.deliverables}\n${t.deliverText}`,
+      `## ${t.audit}\n${t.trust}\n\n\`\`\`json\n${data}\n\`\`\``,
+    ]
+    return sections.join('\n\n')
   }
-  // Escaping backticks and angle brackets prevents website text from closing the evidence block.
-  const data = JSON.stringify(evidence, null, 2).replace(/`/g, '\\u0060').replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
-  const sections = [
-    `# ${t.title}: ${preset}`,
-    `## ${t.context}\n${presetInstructions[preset][language]}\n${t.contextText}\n${t.original}\n${scan.status === 'partially_completed' ? t.partial : t.completed}\n${report.visualAnalysis ? t.vision : t.noVision}\n${SCORE_RULES[language]}`,
-    `## ${t.priorities}\n${findings.length ? t.order : t.empty}`,
-    `## ${t.tasks}\n${t.taskText}${detail === 'detailed' ? `\n${t.detailedTask}` : ''}`,
-    `## ${t.design}\n${t.designText}`,
-    `## ${t.acceptance}\n${t.acceptText}`,
-    `## ${t.tests}\n${t.testText}${detail === 'detailed' ? `\n${t.detailedTests}` : ''}`,
-    `## ${t.deliverables}\n${t.deliverText}`,
-    `## ${t.audit}\n${t.trust}\n\n\`\`\`json\n${data}\n\`\`\``,
-  ]
-  return sections.join('\n\n')
+
+  if (isWebsiteReport(parsedReport.data)) {
+    const scan = parsedReport.data.scan
+    const known = new Set(scan.findings.map((finding) => finding.id))
+    const selected = new Set(selectedIds)
+    if (known.size !== scan.findings.length || selected.size !== selectedIds.length || selectedIds.some((id) => !known.has(id))) {
+      throw new PromptGenerationError()
+    }
+    const verificationOrder = { verified: 0, heuristic: 1, inconclusive: 2 }
+    const severityOrder = { high: 0, medium: 1, low: 2 }
+    const findings = scan.findings
+      .filter((finding) => selected.has(finding.id))
+      .sort((a, b) => verificationOrder[a.verification] - verificationOrder[b.verification] || severityOrder[a.severity] - severityOrder[b.severity])
+
+    const evidence = {
+      target: redactUrl(scan.finalUrl),
+      scannedAt: scan.scannedAt,
+      status: scan.status,
+      warnings: scan.warnings.map(redactSecrets),
+      selectedIds: findings.map((finding) => finding.id),
+      findings: findings.map((finding) => ({
+        id: finding.id,
+        category: finding.category,
+        title: redactSecrets(finding.title),
+        severity: finding.severity,
+        confidence: finding.confidence,
+        verification: finding.verification,
+        source: finding.source,
+        location: redactSecrets(finding.location),
+        evidence: finding.evidence.map(redactSecrets),
+        recommendation: redactSecrets(finding.recommendation),
+        ...(detail === 'detailed' ? { description: redactSecrets(finding.description) } : {}),
+      })),
+    }
+
+    const data = JSON.stringify(evidence, null, 2).replace(/`/g, '\\u0060').replace(/</g, '\\u003c').replace(/>/g, '\\u003e')
+    const sections = [
+      `# ${t.title}: ${preset}`,
+      `## ${t.context}\n${presetInstructions[preset][language]}\n${t.contextText}\n${t.original}\n${scan.status === 'partially_completed' ? t.partial : t.completed}\n${parsedReport.data.visualAnalysis ? t.vision : t.noVision}\n${SCORE_RULES[language]}`,
+      `## ${t.priorities}\n${findings.length ? t.order : t.empty}`,
+      `## ${t.tasks}\n${t.taskText}${detail === 'detailed' ? `\n${t.detailedTask}` : ''}`,
+      `## ${t.design}\n${t.designText}`,
+      `## ${t.acceptance}\n${t.acceptText}`,
+      `## ${t.tests}\n${t.testText}${detail === 'detailed' ? `\n${t.detailedTests}` : ''}`,
+      `## ${t.deliverables}\n${t.deliverText}`,
+      `## ${t.audit}\n${t.trust}\n\n\`\`\`json\n${data}\n\`\`\``,
+    ]
+    return sections.join('\n\n')
+  }
+
+  throw new PromptGenerationError()
 }

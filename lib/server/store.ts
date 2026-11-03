@@ -6,15 +6,32 @@ const TTL = 15 * 60_000
 const MAX_REPORTS = 20
 const WINDOW = 10 * 60_000
 
-type State = { reports: Map<string, RoastReport>; requests: Map<string, number[]>; active: number; globalRequests: number[] }
+type State = {
+  reports: Map<string, RoastReport>
+  requests: Map<string, number[]>
+  active: number
+  globalRequests: number[]
+  gitHubRateLimit?: { remaining: number; reset: number }
+}
 const globalState = globalThis as typeof globalThis & { vibeRoastState?: State; sourceSanityState?: State }
 const state: State = globalState.sourceSanityState ??= globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
 
-export function assertDeployment(): void {
+export function recordGitHubRateLimit(remaining: number, resetSeconds: number): void {
+  state.gitHubRateLimit = { remaining, reset: resetSeconds * 1000 }
+}
+
+export function checkGitHubRateLimit(now = Date.now()): void {
+  if (state.gitHubRateLimit && state.gitHubRateLimit.remaining <= 0 && state.gitHubRateLimit.reset > now) {
+    const waitSec = Math.ceil((state.gitHubRateLimit.reset - now) / 1000)
+    throw new HttpError(429, 'RATE_LIMITED', `GitHub API rate limit reached. Reset in ${waitSec}s.`)
+  }
+}
+
+export function assertDeployment(kind: 'website' | 'repository' = 'website'): void {
   if (process.env.NODE_ENV !== 'production') return
   const mode = process.env.DEPLOYMENT_MODE
-  if (!mode || !process.env.APP_ORIGIN || !process.env.SCANNER_URL) {
-    throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', 'Scanning requires a configured scanner and canonical app origin.')
+  if (!mode || !process.env.APP_ORIGIN || (kind === 'website' && !process.env.SCANNER_URL)) {
+    throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', kind === 'website' ? 'Scanning requires a configured scanner and canonical app origin.' : 'Repository scanning requires a canonical app origin.')
   }
   if (mode !== 'single-instance' && mode !== 'serverless') {
     throw new HttpError(503, 'DEPLOYMENT_NOT_CONFIGURED', 'DEPLOYMENT_MODE must be single-instance or serverless.')
@@ -29,8 +46,11 @@ export function isServerless(): boolean {
   return process.env.DEPLOYMENT_MODE === 'serverless'
 }
 
-export function acquireScan(request: Request, now = Date.now()): () => void {
-  assertDeployment()
+export function acquireScan(request: Request, now = Date.now(), kind: 'website' | 'repository' = 'website'): () => void {
+  assertDeployment(kind)
+  if (kind === 'repository') {
+    checkGitHubRateLimit(now)
+  }
   state.globalRequests = state.globalRequests.filter(time => time > now - WINDOW)
   for (const [key, times] of state.requests) if (!times.some(time => time > now - WINDOW)) state.requests.delete(key)
   // Only an operator-controlled ingress may supply the overwritten client-IP header.

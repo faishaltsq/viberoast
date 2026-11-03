@@ -281,3 +281,5 @@ export async function generateRoast(scan: ScanResult, options: { language: Langu
     throw new AiError()
   } finally { clearTimeout(deadline) }
 }
+
+export { generateRepoRoast } from './skills/repo'

@@ -28,6 +28,7 @@ Configure the variables below before expecting real scans. Missing scanner confi
 | `DEEPSEEK_BASE_URL` | Explicit HTTPS OpenAI-compatible API base, e.g. `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | Explicit currently available model ID; no model is assumed |
 | `DEEPSEEK_SUPPORTS_VISION` | `false` by default; exact `true` opts into image input only after capability verification |
+| `GITHUB_TOKEN` | Optional GitHub personal access token for higher API rate limits (5,000/hr vs 60/hr) |
 | `SCANNER_URL` | Operator-controlled internal worker address; local Compose endpoint `http://127.0.0.1:8787` |
 | `SCANNER_TOKEN` | Cryptographically random secret of at least 32 bytes, shared by web and worker only |
 | `APP_ORIGIN` | Canonical web origin used for same-origin mutation checks |
@@ -80,6 +81,20 @@ Run **one long-lived web process** behind trusted HTTPS ingress. Do not use this
 Ingress requirements: body limit 8 KiB for mutation routes, request-header/body timeouts, upstream timeout of at least 160 seconds for wake (50 s), scan (50 s), AI (45 s), and overhead, plus external abuse/connection limits. The roast route requests a 160-second runtime allowance and the browser waits up to 170 seconds; confirm the hosting plan permits this runtime. When `TRUST_PROXY=true`, the application must not be directly internet-accessible and ingress must overwrite `x-real-ip` instead of forwarding caller values. Without trusted IP configuration, all callers deliberately share the conservative anonymous limit.
 
 Private reports are process-local capabilities, retained for 15 minutes and capped at 20 reports. Restarts and eviction can remove them sooner. Reports and screenshots are returned with `Cache-Control: private, no-store`; possession of the unguessable report ID authorizes retrieval during retention. Do not log report bodies, capability IDs, target URL query strings, screenshots, or provider response content.
+
+## Repository Judge
+
+SourceSanity includes a read-only GitHub repository judge that analyzes codebases, surfaces architecture and security findings, and delivers Bro Code comedy roasts with actionable agent prompts and terminal share cards.
+
+### Limits & Guard Rails
+
+- **Public Repositories Only:** Scans are strictly read-only against public GitHub repos (`github.com/owner/repo`). No code execution, private repository access, PR comments, or repository mutations.
+- **Tree Discovery:** Up to 2,000 file paths discovered per repository; oversized trees are truncated and flagged as partial scans.
+- **File Inspection Budget:** Priority selection of up to 30 relevant source and configuration files (max 32 KiB per file, max 256 KiB total inspected source).
+- **Execution Timeouts:** 10s per GitHub HTTP request, 60s total file extraction, 45s DeepSeek roast generation, and 140s route-level timeout.
+- **Secret Redaction:** Outbound evidence is scrubbed for AWS keys (`AKIA`, `ASIA`, `ABIA`, `ACCA`), fine-grained GitHub PATs (`github_pat_`), Slack/Stripe tokens, private keys, authorization headers, passwords, and emails.
+- **Injection Defense:** Inspected READMEs, commit messages, comments, and file contents are treated as untrusted data, never as prompt instructions.
+- **Upstream Rate Limiting:** Tracks GitHub API rate limits (`x-ratelimit-remaining`, `x-ratelimit-reset`). When limits are reached, repository scans are throttled with a clear retry window, while website scans remain unaffected.
 
 ## Privacy and product boundaries
 
