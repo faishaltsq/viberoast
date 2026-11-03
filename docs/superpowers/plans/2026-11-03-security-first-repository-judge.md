@@ -297,4 +297,11 @@ pnpm build
 - [x] New contract symbols are assigned to producing tasks; public fixtures and old assertions have owners.
 - [x] Five review-focus failure classes map to concrete test additions.
 - [x] Current workflows, branding, scope warnings, human-controlled actions and full command evidence are preserved.
-- [ ] User reviews implementation plan and selects execution method before implementation.
+- [x] User reviews implementation plan and selects specialist-driven execution before implementation.
+
+## Execution ledger
+
+- Task 1: implemented; first specification review identified four accepted issues; corrections are undergoing delta review before quality review and commit.
+- Tasks 2–8: pending; provider-pattern source research completed, adoption pending detector implementation.
+- Controller verified first boundary tests: 2 files / 12 tests passed before review corrections. Corrected tests await controller verification.
+- Planning validation: plan block checker passed; focused untouched baseline passed (3 files, 29 tests). These are not final release gates.
