@@ -188,3 +188,15 @@ Three requested refinements were implemented without changing the approved visua
 The judge is qualitative. It does not produce a quality score, WCAG result, performance number, or hidden-code claim, and an empty visual review is a valid outcome. The existing comedy heat remains an issue-density indicator, not a UI/UX grade.
 
 Rollout: browser-evidence changes require redeploying the isolated scanner worker and running a new scan; frontend/provider changes require deploying the web app. Existing reports are not retroactively regenerated.
+
+## Follow-up: self-contained visual commentary contract (2026-11-03)
+
+A production request returned `scanner_only` after 40,174 ms. Existing production logs did not disclose the provider failure reason, so the precise response for that request was unavailable.
+
+A bounded direct probe using locally configured provider credentials isolated a contract defect: text-only completion succeeded, while both vision attempts returned HTTP 200 with valid visual observations but an empty scanner `findings` array. The old validator required every visual ID to be repeated in that array, so it rejected these responses. A deterministic visual-only regression reproduced the resulting `AiError` before the correction.
+
+Each generated visual observation now includes its own required `roast` and `reaction`. The generated `findings` array maps only canonical scanner IDs; the server constructs visual evidence-ID links and the combined commentary. Missing visual commentary, duplicate/cross-array IDs, unsupplied viewports, invalid evidence, unsupported certainty, and capacity violations still fail validation. The public report shape and scanner-only failure behavior are unchanged.
+
+After correction, a real vision completion on a controlled diagnostic JPEG succeeded on its first call in 5,764 ms, yielding two heuristic visual observations with two matching commentary entries. This was a provider smoke check, not an audit of the user's target website or proof of production rollout. No credentials or raw provider bodies were printed or retained. Production settings, origin rules, scanner isolation, and UI remain unchanged. Temporary diagnostic code was removed.
+
+Verification: 211 unit/integration tests passed across eight files; lint and production build (including TypeScript) exited 0. Browser E2E was not rerun for this server-only contract correction.

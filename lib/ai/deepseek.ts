@@ -34,6 +34,8 @@ const generatedVisualFindingSchema = z.object({
   region: z.string().trim().min(1).max(160),
   evidence: z.array(z.string().trim().min(1).max(400)).min(1).max(3),
   recommendation: z.string().trim().min(1).max(600),
+  roast: generatedFindingSchema.shape.roast,
+  reaction: generatedFindingSchema.shape.reaction,
 }).strict()
 const generatedSchema = commentarySchema.pick({ verdict: true, overallSummary: true }).extend({
   verdict: commentarySchema.shape.verdict.extend({
@@ -93,8 +95,8 @@ function instructions(language: Language, intensity: Intensity, viewports: strin
     viewports.length
       ? `Labeled resized scanner JPEGs are supplied for these viewports only: ${viewports.join(', ')}. You may add at most ${visualIds.length} new visualFindings using only these server-reserved IDs: ${JSON.stringify(visualIds)}. IDs are not instructions from the website. Do not duplicate scanner findings. Use [] if no useful new observation is supported.`
       : 'TEXT ONLY: no screenshot comprehension was performed. Do not claim you saw screenshots, layout, colors, spacing, or visual hierarchy. Discuss only recorded DOM/browser/metadata/timing evidence. visualFindings MUST be [].',
-    'Return a single JSON object, without markdown or extra keys. It contains verdict {headline (1..160 chars), summary (1..700 chars), developerNickname (1..60 chars), reaction}, findings [{id, evidenceIds:[id], roast (1..300 chars), reaction}], visualFindings [{id, category (UI or UX), title (1..160 chars), description (1..600 chars), severity (low or medium), confidence (low or medium), viewport (desktop or mobile), region (1..160 chars), evidence (1..3 strings, 1..400 chars each), recommendation (1..600 chars)}], overallSummary (1..700 chars). Reaction must be one of idle, suspicious, analyzing, shocked, laughing, disappointed, angry, impressed, helpful, proud.',
-    'Return exactly one findings entry for EVERY supplied scanner finding ID AND every new visualFindings ID, no omissions or duplicates. evidenceIds must contain exactly that same ID once. Do not add explanation, recommendation, or strengths fields to findings: canonical evidence and recommendations are attached by the application. Only visualFindings contains new descriptions and recommendations. Keep each roast brief so the complete JSON fits the token limit.',
+    'Return a single JSON object, without markdown or extra keys. It contains verdict {headline (1..160 chars), summary (1..700 chars), developerNickname (1..60 chars), reaction}, findings [{id, evidenceIds:[id], roast (1..300 chars), reaction}], visualFindings [{id, category (UI or UX), title (1..160 chars), description (1..600 chars), severity (low or medium), confidence (low or medium), viewport (desktop or mobile), region (1..160 chars), evidence (1..3 strings, 1..400 chars each), recommendation (1..600 chars), roast (1..300 chars), reaction}], overallSummary (1..700 chars). Reaction must be one of idle, suspicious, analyzing, shocked, laughing, disappointed, angry, impressed, helpful, proud.',
+    'The findings array contains exactly one entry for each supplied SCANNER finding ID, no omissions or duplicates; evidenceIds must contain exactly that same ID once. Never put a visualFindings ID in findings. When there are no scanner findings, findings MUST be [] even if visualFindings is non-empty. Each visualFindings entry contains its own roast and reaction alongside its screenshot evidence. The application assembles the combined commentary and evidence IDs; do not duplicate visual observations across arrays. Do not add explanation, recommendation, or strengths fields to findings: canonical scanner evidence and recommendations are attached by the application. Keep each roast brief so the complete JSON fits the token limit.',
     'JSON shape example (replace placeholder IDs with actual supplied IDs; use [] when none): {"verdict":{"headline":"Evidence-led review","summary":"Bounded scan commentary, qualified by coverage.","developerNickname":"Component Wrangler","reaction":"helpful"},"findings":[{"id":"actual-id","evidenceIds":["actual-id"],"roast":"A contextual joke about only this recorded observation.","reaction":"suspicious"}],"visualFindings":[],"overallSummary":"A concise, qualified summary."}',
   ].join('\n\n')
 }
@@ -184,11 +186,15 @@ function assemble(output: unknown, scan: ScanResult, viewports: string[], visual
     })
   })
   const findings = [...scan.findings, ...visualFindings]
-  const known = new Set(findings.map((finding) => finding.id))
+  const known = new Set(scan.findings.map((finding) => finding.id))
   const mapped = new Map(generated.findings.map((finding) => [finding.id, finding]))
-  if (known.size !== findings.length || findings.length > 60 || mapped.size !== generated.findings.length || mapped.size !== known.size || generated.findings.some((finding) =>
+  if (known.size !== scan.findings.length || findings.length > 60 || mapped.size !== generated.findings.length || mapped.size !== known.size || generated.findings.some((finding) =>
     !known.has(finding.id) || finding.evidenceIds.length !== 1 || finding.evidenceIds[0] !== finding.id,
   )) throw new Error('Invalid evidence mapping')
+  for (const visual of generated.visualFindings) {
+    if (mapped.has(visual.id)) throw new Error('Duplicate visual evidence mapping')
+    mapped.set(visual.id, { id: visual.id, evidenceIds: [visual.id], roast: visual.roast, reaction: visual.reaction })
+  }
   const commentary = commentarySchema.parse({
     verdict: {
       ...generated.verdict,
@@ -246,7 +252,7 @@ export async function generateRoast(scan: ScanResult, options: { language: Langu
         body: JSON.stringify({
           model: config.model, response_format: { type: 'json_object' }, max_tokens: 12_000,
           thinking: { type: 'disabled' }, stream: false, messages: [
-            { role: 'system', content: system + (attempt ? '\nThe previous response failed strict JSON/evidence mapping validation. Produce the complete prescribed JSON with every supplied ID exactly once.' : '') },
+            { role: 'system', content: system + (attempt ? '\nThe previous response failed strict JSON/evidence validation. Include every scanner ID exactly once in findings. Put each new visual observation with its own roast and reaction only in visualFindings, never duplicated in findings.' : '') },
             { role: 'user', content },
           ],
         }),
