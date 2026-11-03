@@ -111,5 +111,5 @@ PR includes final commit SHA, threat model, changed files, coverage limits, dete
 - [x] Raw/public contracts, redaction ordering and fail-closed behavior specified.
 - [x] Budgets, incomplete scope, provider validity and static-analysis uncertainty explicit.
 - [x] Implementation order, UI scope, regression fixtures and delivery evidence specified.
-- [ ] User approves this written specification.
+- [x] User approves this written specification.
 - [ ] Implementation plan reviewed and execution method selected.
