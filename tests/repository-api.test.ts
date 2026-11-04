@@ -49,7 +49,8 @@ const validTarget = {
 beforeEach(() => {
   vi.unstubAllEnvs()
   vi.resetModules()
-  delete (globalThis as typeof globalThis & { vibeRoastState?: unknown }).vibeRoastState
+  delete (globalThis as typeof globalThis & { vibeRoastState?: unknown; sourceSanityState?: unknown }).vibeRoastState
+  delete (globalThis as typeof globalThis & { vibeRoastState?: unknown; sourceSanityState?: unknown }).sourceSanityState
   vi.stubEnv('NODE_ENV', 'test')
   vi.stubEnv('TRUST_PROXY', 'false')
 })

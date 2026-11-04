@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import Image from 'next/image'
 import { ArrowRight, ChevronDown, RotateCcw } from 'lucide-react'
-import type { Language, RoastReport, WebsiteReport } from '@/lib/types/report'
+import type { Language, WebsiteReport } from '@/lib/types/report'
 import { calculateScore } from '@/lib/roast/score'
 import { downloadShareCard, shareText } from '@/lib/share/card'
 import { Mascot } from '@/components/bro-code/mascot'

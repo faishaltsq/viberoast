@@ -203,7 +203,7 @@ describe('generateRepoRoast', () => {
     expect(result.commentary.findings[0].roast).toContain('[redacted]')
   })
 
-  it('handles partial finding roasts gracefully by falling back for unmentioned findings', async () => {
+  it('falls back to a default roast when the model leaves a selected finding unroasted', async () => {
     const scan = createSampleScan()
     scan.findings.push({
       id: 'finding-2',
@@ -234,8 +234,15 @@ describe('generateRepoRoast', () => {
               findings: [
                 {
                   id: 'finding-1',
+                  evidenceIds: ['finding-1'],
                   roast: 'Still using console.log.',
                   reaction: 'shocked',
+                },
+                {
+                  id: 'finding-2',
+                  evidenceIds: ['finding-2'],
+                  roast: '',
+                  reaction: 'laughing',
                 },
               ],
               strengths: [],
@@ -255,10 +262,75 @@ describe('generateRepoRoast', () => {
 
     const result = await generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
     expect(result.commentary.findings).toHaveLength(2)
-    expect(result.commentary.findings[0].id).toBe('finding-1')
-    expect(result.commentary.findings[0].roast).toBe('Still using console.log.')
-    expect(result.commentary.findings[1].id).toBe('finding-2')
-    expect(result.commentary.findings[1].roast).toContain('Bro Code was rendered momentarily speechless')
+    // Security-first prioritization orders the high-severity security finding first.
+    const [first, second] = result.commentary.findings
+    expect(first.id).toBe('finding-2')
+    expect(first.roast).toContain('Bro Code was rendered momentarily speechless')
+    expect(second.id).toBe('finding-1')
+    expect(second.roast).toBe('Still using console.log.')
+  })
+
+  it('fails honestly when the model omits a selected finding entirely', async () => {
+    const scan = createSampleScan()
+    scan.findings.push({
+      id: 'finding-2',
+      category: 'Security',
+      title: 'Wildcard CORS',
+      description: 'CORS header set to *.',
+      severity: 'high',
+      confidence: 'high',
+      evidence: ['Access-Control-Allow-Origin: *'],
+      location: 'server.ts:10',
+      recommendation: 'Scope origin.',
+      source: 'repository',
+      verification: 'verified',
+    })
+
+    const mockOmittedResponse = {
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({
+              verdict: {
+                headline: 'Selective Coverage',
+                summary: 'Only roasted finding 1.',
+                developerNickname: 'The Selective Reviewer',
+                reaction: 'laughing',
+              },
+              findings: [
+                {
+                  id: 'finding-1',
+                  evidenceIds: ['finding-1'],
+                  roast: 'Still using console.log.',
+                  reaction: 'shocked',
+                },
+              ],
+              strengths: [],
+              overallSummary: 'Overall okay.',
+            }),
+          },
+        },
+      ],
+    }
+
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(mockOmittedResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(mockOmittedResponse), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+
+    await expect(
+      generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
+    ).rejects.toMatchObject({ code: 'AI_UNAVAILABLE' })
   })
 
   it('sanitizes unknown reaction strings to valid reactions', async () => {
@@ -278,6 +350,7 @@ describe('generateRepoRoast', () => {
               findings: [
                 {
                   id: 'finding-1',
+                  evidenceIds: ['finding-1'],
                   roast: 'Roasting with custom reaction.',
                   reaction: 'crying_laughing',
                 },
@@ -320,6 +393,7 @@ describe('generateRepoRoast', () => {
               findings: [
                 {
                   id: 'finding-1',
+                  evidenceIds: ['finding-1'],
                   title: 'Console log found',
                   category: 'Code Quality',
                   severity: 'low',

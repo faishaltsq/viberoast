@@ -14,27 +14,46 @@ const TIMEOUT_MS = 45_000
 const MAX_STRUCTURED_PAYLOAD_BYTES = 48 * 1024 // 48 KiB explicit bound
 const MAX_COMMENTARY_FINDINGS = 60
 
-const generatedFindingSchema = commentarySchema.shape.findings.element.pick({
-  id: true,
-  evidenceIds: true,
-  roast: true,
-  reaction: true,
-}).extend({
-  roast: z.string().trim().min(1).max(700),
-  reaction: reactionSchema,
-}).strict()
+const VALID_REACTIONS = new Set<string>([
+  'idle',
+  'suspicious',
+  'analyzing',
+  'shocked',
+  'laughing',
+  'disappointed',
+  'angry',
+  'impressed',
+  'helpful',
+  'proud',
+])
 
-const repoGeneratedSchema = commentarySchema.pick({ verdict: true, overallSummary: true }).extend({
-  verdict: commentarySchema.shape.verdict.extend({
-    headline: z.string().trim().min(1).max(240),
-    summary: z.string().trim().min(1).max(1600),
-    developerNickname: z.string().trim().min(1).max(100),
-    reaction: reactionSchema,
-  }).strict(),
-  findings: z.array(generatedFindingSchema).max(60),
+function sanitizeReaction(val: unknown, fallback: z.infer<typeof reactionSchema> = 'suspicious'): z.infer<typeof reactionSchema> {
+  if (typeof val === 'string' && VALID_REACTIONS.has(val)) {
+    return val as z.infer<typeof reactionSchema>
+  }
+  return fallback
+}
+
+// Lenient by design (rebrand lane): unknown reactions sanitize to 'suspicious' and
+// missing roasts fall back to defaultFindingRoast instead of failing the whole commentary.
+const generatedFindingSchema = z.object({
+  id: z.string().trim().min(1).max(200),
+  evidenceIds: z.array(z.string()).optional().default([]),
+  roast: z.string().trim().max(1000).optional().default(''),
+  reaction: z.unknown().transform((val) => sanitizeReaction(val, 'suspicious')),
+})
+
+const repoGeneratedSchema = z.object({
+  verdict: z.object({
+    headline: z.string().trim().min(1).max(500),
+    summary: z.string().trim().min(1).max(3000),
+    developerNickname: z.string().trim().min(1).max(200),
+    reaction: z.unknown().transform((val) => sanitizeReaction(val, 'suspicious')),
+  }),
+  findings: z.array(generatedFindingSchema).max(60).optional().default([]),
   strengths: z.array(z.string().trim().min(1).max(500)).max(12).optional().default([]),
-  overallSummary: z.string().trim().min(1).max(1600),
-}).strict()
+  overallSummary: z.string().trim().min(1).max(3000),
+})
 
 const completionSchema = z.object({
   choices: z.array(z.object({
@@ -436,7 +455,7 @@ function assembleRepo(
       evidenceIds: Array.isArray(item.evidenceIds)
         ? item.evidenceIds.map((e) => (typeof e === 'string' ? e.trim() : ''))
         : [],
-      roast: clean(item.roast, 700),
+      roast: typeof item.roast === 'string' ? clean(item.roast, 700) : '',
       reaction: item.reaction,
     }
   })

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, FileText } from 'lucide-react'
-import type { Language, PromptOptions, RoastReport, WebsiteReport } from '@/lib/types/report'
+import type { Language, PromptOptions, WebsiteReport } from '@/lib/types/report'
 import { generatePrompt } from '@/lib/prompts/generate'
 import { Mascot } from '@/components/bro-code/mascot'
 import { downloadText, SectionLabel } from '@/components/shared/primitives'

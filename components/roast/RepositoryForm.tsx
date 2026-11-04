@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ArrowRight, GitBranch, RotateCcw, Terminal } from 'lucide-react'
+import { ArrowRight, GitBranch, RotateCcw } from 'lucide-react'
 import type { Language } from '@/lib/types/report'
 import { parseGitHubUrl } from '@/lib/github/parse-url'
 
