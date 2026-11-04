@@ -84,7 +84,7 @@ export function analyzeRepository(ctx: AnalysisContext): AnalysisResult {
   const evidenceSummary = [
     `Repository analysis for ${ctx.owner}/${ctx.repo} at commit ${ctx.sha.slice(0, 7)}.`,
     `Tree size: ${ctx.tree.length} files discovered.`,
-    `Content analyzed: ${ctx.files.length} selected files, ${ctx.files.reduce((acc, f) => acc + f.size, 0)} bytes inspected.`,
+    `Content analyzed: ${ctx.files.length} selected files, ${ctx.files.reduce((acc, f) => acc + Buffer.byteLength(f.content, 'utf8'), 0)} bytes inspected.`,
     prioritized.length > 0
       ? `Identified ${prioritized.length} key observations across ${new Set(prioritized.map((f) => f.category)).size} categories.`
       : 'No critical architectural, security, or hygiene defects detected in inspected files.',

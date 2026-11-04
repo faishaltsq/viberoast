@@ -538,5 +538,21 @@ describe('Repository Analysis Engine', () => {
       }
       expect(validateFinding(findingRange, ctx).location).toBe('src/main.ts:1-5')
     })
+
+    it('evidence summary uses admitted UTF-8 bytes for truncated files (not advertised size)', () => {
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/truncated.txt',
+            size: 100000,
+            content: 'x'.repeat(32768),
+            truncated: true,
+          },
+        ],
+      })
+      const result = analyzeRepository(ctx)
+      expect(result.evidenceSummary).toContain('32768 bytes inspected')
+      expect(result.evidenceSummary).not.toContain('100000 bytes inspected')
+    })
   })
 })
