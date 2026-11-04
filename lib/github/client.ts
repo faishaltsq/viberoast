@@ -132,7 +132,7 @@ async function requestGitHubBoundedJson<T>(
 
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github.v3+json',
-    'User-Agent': 'VibeRoast',
+    'User-Agent': 'SourceSanity',
     ...options.headers,
   }
 

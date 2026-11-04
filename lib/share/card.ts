@@ -64,6 +64,8 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
     ctx.strokeStyle = '#20201e'; ctx.lineWidth = 4; ctx.strokeRect(18, 18, width - 36, canvas.height - 36)
     ctx.fillStyle = '#20201e'; ctx.font = '900 42px Arial'
     ctx.fillText('SourceSanity', 48, 44)
+    ctx.font = '16px monospace'
+    lines(ctx, t('COMEDY CARD · NOT AN AUDIT GRADE', 'KARTU KOMEDI · BUKAN NILAI AUDIT'), 48, 102, square ? 984 : 320, 21, 2)
 
     if (isRepositoryReport(report)) {
       const scan = report.repoScan

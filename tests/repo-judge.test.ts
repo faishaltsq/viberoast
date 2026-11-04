@@ -202,4 +202,187 @@ describe('generateRepoRoast', () => {
     expect(result.commentary.findings[0].roast).not.toContain('AKIA1234567890ABCDEF')
     expect(result.commentary.findings[0].roast).toContain('[redacted]')
   })
+
+  it('handles partial finding roasts gracefully by falling back for unmentioned findings', async () => {
+    const scan = createSampleScan()
+    scan.findings.push({
+      id: 'finding-2',
+      category: 'Security',
+      title: 'Wildcard CORS',
+      description: 'CORS header set to *.',
+      severity: 'high',
+      confidence: 'high',
+      evidence: ['Access-Control-Allow-Origin: *'],
+      location: 'server.ts:10',
+      recommendation: 'Scope origin.',
+      source: 'repository',
+      verification: 'verified',
+    })
+
+    const mockPartialResponse = {
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({
+              verdict: {
+                headline: 'Partial Coverage',
+                summary: 'Only roasted finding 1.',
+                developerNickname: 'The Selective Reviewer',
+                reaction: 'laughing',
+              },
+              findings: [
+                {
+                  id: 'finding-1',
+                  roast: 'Still using console.log.',
+                  reaction: 'shocked',
+                },
+              ],
+              strengths: [],
+              overallSummary: 'Overall okay.',
+            }),
+          },
+        },
+      ],
+    }
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockPartialResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const result = await generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
+    expect(result.commentary.findings).toHaveLength(2)
+    expect(result.commentary.findings[0].id).toBe('finding-1')
+    expect(result.commentary.findings[0].roast).toBe('Still using console.log.')
+    expect(result.commentary.findings[1].id).toBe('finding-2')
+    expect(result.commentary.findings[1].roast).toContain('Bro Code was rendered momentarily speechless')
+  })
+
+  it('sanitizes unknown reaction strings to valid reactions', async () => {
+    const scan = createSampleScan()
+    const mockUnknownReactionResponse = {
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({
+              verdict: {
+                headline: 'Creative Reactions',
+                summary: 'DeepSeek returned creative reaction strings.',
+                developerNickname: 'Emoji Maestro',
+                reaction: 'sarcastic_smug_face',
+              },
+              findings: [
+                {
+                  id: 'finding-1',
+                  roast: 'Roasting with custom reaction.',
+                  reaction: 'crying_laughing',
+                },
+              ],
+              strengths: [],
+              overallSummary: 'Good run.',
+            }),
+          },
+        },
+      ],
+    }
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockUnknownReactionResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const result = await generateRepoRoast(scan, { language: 'en', intensity: 'No Mercy' })
+    expect(result.commentary.verdict.reaction).toBe('suspicious')
+    expect(result.commentary.findings[0].reaction).toBe('suspicious')
+  })
+
+  it('tolerates extra metadata fields returned by AI without failing schema parsing', async () => {
+    const scan = createSampleScan()
+    const mockExtraFieldsResponse = {
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({
+              verdict: {
+                headline: 'Extra Fields',
+                summary: 'Contains unprompted fields.',
+                developerNickname: 'Verbose Model',
+                reaction: 'proud',
+                confidenceScore: 0.95,
+              },
+              findings: [
+                {
+                  id: 'finding-1',
+                  title: 'Console log found',
+                  category: 'Code Quality',
+                  severity: 'low',
+                  roast: 'Too many logs.',
+                  reaction: 'laughing',
+                },
+              ],
+              visualFindings: [],
+              notes: 'Inspection complete.',
+              strengths: ['Great repo'],
+              overallSummary: 'Clean output.',
+            }),
+          },
+        },
+      ],
+    }
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockExtraFieldsResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const result = await generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
+    expect(result.commentary.verdict.headline).toBe('Extra Fields')
+    expect(result.commentary.findings[0].roast).toBe('Too many logs.')
+  })
+
+  it('handles repository scan with zero findings', async () => {
+    const scan = createSampleScan()
+    scan.findings = []
+
+    const mockZeroFindingsResponse = {
+      choices: [
+        {
+          finish_reason: 'stop',
+          message: {
+            content: JSON.stringify({
+              verdict: {
+                headline: 'Pristine Architecture',
+                summary: 'Zero defects detected by static analyzer.',
+                developerNickname: 'The Perfectionist',
+                reaction: 'impressed',
+              },
+              findings: [],
+              strengths: ['No defects detected.'],
+              overallSummary: 'Remarkably clean codebase.',
+            }),
+          },
+        },
+      ],
+    }
+
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(JSON.stringify(mockZeroFindingsResponse), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    )
+
+    const result = await generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
+    expect(result.commentary.findings).toHaveLength(0)
+    expect(result.commentary.verdict.headline).toBe('Pristine Architecture')
+  })
 })

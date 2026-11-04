@@ -236,6 +236,7 @@ export async function POST(request: Request): Promise<Response> {
       commentary = generated.commentary
     } catch (error) {
       if (routeSignal.aborted) throw error
+      console.error('[REPO_ROAST_AI_FAILED]', error)
     }
 
     routeSignal.throwIfAborted()

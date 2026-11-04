@@ -104,7 +104,7 @@ export async function fetchTree(
   const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${encodeURIComponent(sha)}?recursive=1`
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
-    'User-Agent': 'VibeRoast',
+    'User-Agent': 'SourceSanity',
     'X-GitHub-Api-Version': '2022-11-28',
   }
 

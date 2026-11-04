@@ -379,11 +379,20 @@ function selectCommentaryPayload(
   return { payload, selectedFindings }
 }
 
+// Fallback roast from the rebrand lane: every selected finding keeps visible commentary even when the model omits it.
+function defaultFindingRoast(finding: Finding, language: 'en' | 'id'): string {
+  if (language === 'id') {
+    return `Bro Code terdiam melihat temuan ini (${finding.title}). Biarkan kode yang berbicara, tapi kodenya malah curhat.`
+  }
+  return `Bro Code was rendered momentarily speechless by this finding (${finding.title}). Code never lies, but this one is in denial.`
+}
+
 function assembleRepo(
   rawOutput: unknown,
   scan: RepoScanResult,
   selectedFindings: Finding[],
-  sensitiveValues: readonly string[]
+  sensitiveValues: readonly string[],
+  language: 'en' | 'id'
 ): Commentary {
   if (typeof rawOutput !== 'object' || rawOutput === null) {
     throw new Error('Invalid output format from model')
@@ -483,6 +492,7 @@ function assembleRepo(
       const item = mapped.get(finding.id)!
       return {
         ...item,
+        roast: item.roast.trim() ? item.roast : clean(defaultFindingRoast(finding, language), 700),
         explanation: clean(finding.description, 1600),
         recommendation: clean(finding.recommendation, 1600),
       }
@@ -635,7 +645,8 @@ export async function generateRepoRoast(
           JSON.parse(envelope.choices[0].message.content),
           safeScan,
           selectedFindings,
-          sensitiveValues
+          sensitiveValues,
+          options.language
         )
         return { commentary, visualAnalysis: false }
       } catch (err) {

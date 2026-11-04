@@ -14,8 +14,8 @@ type State = {
   globalRequests: number[]
   gitHubRateLimit?: { remaining: number; reset: number }
 }
-const globalState = globalThis as typeof globalThis & { vibeRoastState?: State }
-const state: State = globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
+const globalState = globalThis as typeof globalThis & { vibeRoastState?: State; sourceSanityState?: State }
+const state: State = globalState.sourceSanityState ??= globalState.vibeRoastState ??= { reports: new Map<string, RoastReport>(), requests: new Map<string, number[]>(), active: 0, globalRequests: [] }
 
 export function recordGitHubRateLimit(remaining: number, resetSeconds: number): void {
   state.gitHubRateLimit = { remaining, reset: resetSeconds * 1000 }
