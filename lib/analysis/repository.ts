@@ -1,10 +1,12 @@
 import type { AnalysisContext, AnalysisResult } from './types'
 import type { Finding } from '../types/report'
+import { safeSnippet } from '../security/redact'
 import { checkStructure } from './checks/structure'
 import { checkMaintainability } from './checks/maintainability'
 import { checkTestingCi } from './checks/testing-ci'
 import { checkDependencies } from './checks/dependencies'
 import { checkSecurity } from './checks/security'
+import { analyzeStaticSecurity } from '../security/static'
 import { checkGitDx } from './checks/git-dx'
 import { deduplicateFindings } from './deduplicate'
 import { prioritizeFindings, detectStrengths, detectWarnings } from './prioritize'
@@ -20,9 +22,19 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
     if (/^\d+$/.test(linePart)) {
       const lineNum = parseInt(linePart, 10)
       if (lineNum > totalLines) {
+        const validLine = Math.max(1, totalLines)
         return {
           ...finding,
-          location: `${filePath}:${Math.max(1, totalLines)}`,
+          location: `${filePath}:${validLine}`,
+          ...(finding.security
+            ? {
+                security: {
+                  ...finding.security,
+                  lineStart: validLine,
+                  lineEnd: validLine,
+                },
+              }
+            : {}),
         }
       }
     } else if (/^(\d+)-(\d+)$/.test(linePart)) {
@@ -35,6 +47,15 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
         return {
           ...finding,
           location: `${filePath}:${validStart}-${validEnd}`,
+          ...(finding.security
+            ? {
+                security: {
+                  ...finding.security,
+                  lineStart: validStart,
+                  lineEnd: validEnd,
+                },
+              }
+            : {}),
         }
       }
     }
@@ -44,8 +65,10 @@ export function validateFinding(finding: Finding, ctx: AnalysisContext): Finding
 }
 
 export function analyzeRepository(ctx: AnalysisContext): AnalysisResult {
+  const staticFindings = analyzeStaticSecurity(ctx)
   const allFindings = [
-    ...checkSecurity(ctx),
+    ...checkSecurity(ctx, staticFindings),
+    ...staticFindings,
     ...checkTestingCi(ctx),
     ...checkDependencies(ctx),
     ...checkStructure(ctx),
@@ -61,12 +84,12 @@ export function analyzeRepository(ctx: AnalysisContext): AnalysisResult {
   const evidenceSummary = [
     `Repository analysis for ${ctx.owner}/${ctx.repo} at commit ${ctx.sha.slice(0, 7)}.`,
     `Tree size: ${ctx.tree.length} files discovered.`,
-    `Content analyzed: ${ctx.files.length} selected files, ${ctx.files.reduce((acc, f) => acc + f.size, 0)} bytes inspected.`,
+    `Content analyzed: ${ctx.files.length} selected files, ${ctx.files.reduce((acc, f) => acc + Buffer.byteLength(f.content, 'utf8'), 0)} bytes inspected.`,
     prioritized.length > 0
       ? `Identified ${prioritized.length} key observations across ${new Set(prioritized.map((f) => f.category)).size} categories.`
       : 'No critical architectural, security, or hygiene defects detected in inspected files.',
     warnings.length > 0 ? warnings.join(' ') : '',
-  ].filter(Boolean).join(' ')
+  ].filter(Boolean).map((s) => safeSnippet(s, 1000, ctx.sensitiveValues)).join(' ')
 
   return {
     findings: prioritized,

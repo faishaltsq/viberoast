@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowDownRight, ArrowRight, Check, ChevronDown, CircleDot, GitBranch, Menu, RotateCcw, Search, Terminal, X, Zap } from 'lucide-react'
+import { ArrowDownRight, ArrowRight, Check, CircleDot, GitBranch, Menu, RotateCcw, Search, Terminal, X, Zap } from 'lucide-react'
 import type { Intensity, Language, RoastReport } from '@/lib/types/report'
 import { isRepositoryReport, isWebsiteReport, reportSchema } from '@/lib/types/report'
 import { calculateScore } from '@/lib/roast/score'
@@ -12,17 +12,48 @@ import { RepoResults } from '@/components/roast/RepoResults'
 import { RepositoryForm } from '@/components/roast/RepositoryForm'
 import { Fixes } from '@/components/fixes/fixes'
 import { RepositoryFix } from '@/components/fixes/RepositoryFix'
-import { examples, Hall } from '@/components/roast/hall'
 import { Dialog, SectionLabel } from '@/components/shared/primitives'
+import {
+  LANGUAGE_COOKIE_NAME,
+  type ScanMode,
+  isValidLanguage,
+  resolveInitialLanguage,
+  resolveScanMode,
+} from '@/lib/hall-navigation'
 
-type View = 'home' | 'results' | 'fixes' | 'hall'
-type ScanMode = 'website' | 'repository'
+type View = 'home' | 'results' | 'fixes'
+
+const PUBLIC_PREVIEW_EXAMPLES = [
+  {
+    name: 'TaskToast',
+    en: 'Bro, your empty state has more personality than the app.',
+    id: 'Bro, halaman kosongmu lebih berkepribadian daripada aplikasinya.',
+    score: 18,
+    rank: '01',
+    color: 'green',
+  },
+  {
+    name: 'CryptoBros.app',
+    en: 'The gradients called. They want their 2021 back.',
+    id: 'Gradiennya menelepon. Mereka minta tahun 2021 dikembalikan.',
+    score: 72,
+    rank: '02',
+    color: 'red',
+  },
+  {
+    name: 'SaaSStarter',
+    en: 'It is giving template, but at least the template is centered.',
+    id: 'Auranya template banget, tapi setidaknya templatenya rata tengah.',
+    score: 42,
+    rank: '03',
+    color: 'yellow',
+  },
+] as const
 
 export default function Page() {
   const [language, setLanguage] = useState<Language>('en')
   const [scanMode, setScanMode] = useState<ScanMode>('website')
   const [url, setUrl] = useState('')
-  const [repoOpen, setRepoOpen] = useState(false)
   const [intensity, setIntensity] = useState<Intensity>('No Mercy')
   const [view, setView] = useState<View>('home')
   const [section, setSection] = useState('top')
@@ -62,7 +93,34 @@ export default function Page() {
 
   const tickerText = <>{t('NO FLUFF', 'TANPA BASA-BASI')}<span className="ticker-separator" aria-hidden="true">✳</span>{t('NO FAKE METRICS', 'TANPA METRIK PALSU')}<span className="ticker-separator" aria-hidden="true">✳</span>{t('JUST HONEST FEEDBACK', 'MASUKAN APA ADANYA')}<span className="ticker-separator" aria-hidden="true">✳</span></>
 
-  useEffect(() => { document.documentElement.lang = language }, [language])
+  const initialSyncDone = useRef(false)
+
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => {
+      const search = typeof window !== 'undefined' ? window.location.search : ''
+      const cookieStr = typeof document !== 'undefined' ? document.cookie : ''
+      const targetLang = resolveInitialLanguage(search, cookieStr)
+      if (targetLang !== 'en') {
+        setLanguage(targetLang)
+      }
+      const queryLang = new URLSearchParams(search).get('lang')
+      if (isValidLanguage(queryLang)) {
+        document.cookie = `${LANGUAGE_COOKIE_NAME}=${queryLang}; path=/; max-age=31536000; SameSite=Lax`
+      }
+      const mode = resolveScanMode(search)
+      if (mode) {
+        setScanMode(mode)
+      }
+      initialSyncDone.current = true
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [])
+
+  useEffect(() => {
+    document.documentElement.lang = language
+    if (!initialSyncDone.current) return
+    document.cookie = `${LANGUAGE_COOKIE_NAME}=${language}; path=/; max-age=31536000; SameSite=Lax`
+  }, [language])
   useEffect(() => { if (view !== 'home') document.getElementById('main-content')?.focus({ preventScroll: true }) }, [view])
   useEffect(() => () => controller.current?.abort(), [])
   useEffect(() => {
@@ -184,7 +242,7 @@ export default function Page() {
       if (!isRepositoryReport(next)) throw new Error(t('The server returned an invalid repository report.', 'Server mengembalikan laporan repositori yang tidak valid.'))
       setScannedTarget(trimmed)
       setReport(next)
-      setSelectedIds(next.repoScan.findings.map(f => f.id))
+      setSelectedIds(Array.from(new Set([...(next.repoScan.securityFindings ?? []).map(f => f.id), ...next.repoScan.findings.map(f => f.id)])).slice(0, 60))
       navigate('results')
     } catch (failure) {
       setErrorReaction('confused')
@@ -196,7 +254,7 @@ export default function Page() {
     }
   }
 
-  const logo = <a href="#top" className="logo" onClick={event => { event.preventDefault(); navigate('home') }} aria-label={t('VibeRoast home', 'Beranda VibeRoast')}><span className="logo-flame" aria-hidden="true">✦</span> Vibe<span>Roast</span></a>
+  const logo = <a href="#top" className="logo" onClick={event => { event.preventDefault(); navigate('home') }} aria-label={t('SourceSanity home', 'Beranda SourceSanity')}><span className="logo-flame" aria-hidden="true">✦</span> Source<span>Sanity</span></a>
 
   return <main id="top" className="site-shell">
     <a className="skip-link" href="#main-content">{t('Skip to content', 'Langsung ke konten')}</a>
@@ -204,7 +262,7 @@ export default function Page() {
       {logo}
       <nav id="main-nav" className={mobileMenu ? 'nav-links open' : 'nav-links'} aria-label={t('Main navigation', 'Navigasi utama')}>
         <a href="#roast" aria-current={view === 'home' && section !== 'how' ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate('home', 'roast') }}>Roast</a>
-        <a href="#hall" aria-current={view === 'hall' ? 'page' : undefined} onClick={event => { event.preventDefault(); navigate('hall') }}>Hall of Shame</a>
+        <a href={`/hall?lang=${language}`}>Hall of Shame</a>
         <a href="#how" aria-current={view === 'home' && section === 'how' ? 'location' : undefined} onClick={event => { event.preventDefault(); navigate('home', 'how') }}>{t('How it works', 'Cara kerja')}</a>
         <button
           className="nav-link-btn"
@@ -219,7 +277,16 @@ export default function Page() {
         </button>
       </nav>
       <div className="nav-actions">
-        <button className="lang" aria-label={t('Switch to Bahasa Indonesia', 'Ganti ke English')} onClick={() => setLanguage(id ? 'en' : 'id')}>
+        <button
+          className="lang"
+          aria-label={t('Switch to Bahasa Indonesia', 'Ganti ke English')}
+          onClick={() => {
+            const next = id ? 'en' : 'id'
+            initialSyncDone.current = true
+            setLanguage(next)
+            document.cookie = `${LANGUAGE_COOKIE_NAME}=${next}; path=/; max-age=31536000; SameSite=Lax`
+          }}
+        >
           {id ? 'ID' : 'EN'} <span aria-hidden="true">/ {id ? 'EN' : 'ID'}</span>
         </button>
         <button className="menu-btn" onClick={() => setMobileMenu(!mobileMenu)} aria-expanded={mobileMenu} aria-controls="main-nav" aria-label={t('Toggle menu', 'Buka atau tutup menu')}>
@@ -530,7 +597,7 @@ export default function Page() {
           <div className="terminal-preview">
             <div className="terminal-bar">
               <CircleDot />
-              <span>viberoast / {t('illustration.log', 'contoh.log')}</span>
+              <span>sourcesanity / {t('illustration.log', 'contoh.log')}</span>
               <span>•••</span>
             </div>
             <div className="terminal-lines">
@@ -613,12 +680,12 @@ export default function Page() {
             <SectionLabel>{t('ILLUSTRATIVE EXAMPLES · NOT COMMUNITY DATA', 'CONTOH ILUSTRATIF · BUKAN DATA KOMUNITAS')}</SectionLabel>
             <h2>Hall of <span>Shame.</span></h2>
           </div>
-          <button className="outline-btn" onClick={() => navigate('hall')}>
+          <a href={`/hall?lang=${language}`} className="outline-btn">
             {t('Browse examples', 'Lihat contoh')} <ArrowRight />
-          </button>
+          </a>
         </div>
         <div className="leader-list">
-          {examples.map((item) => (
+          {PUBLIC_PREVIEW_EXAMPLES.map((item) => (
             <div className="leader-row" key={item.name}>
               <span className="rank">{item.rank}</span>
               <div className={`thumb ${item.color}`} aria-hidden="true" />
@@ -699,14 +766,12 @@ export default function Page() {
         results={() => navigate('results')}
       />
     )}
-
-    {view === 'hall' && <Hall language={language} home={() => navigate('home')} />}
     </div>
 
     <footer className="footer container">
       {logo}
       <span>{t('Built with questionable taste & good intentions.', 'Dibuat dengan selera meragukan & niat baik.')}</span>
-      <span>© {new Date().getFullYear()} VibeRoast</span>
+      <span>© {new Date().getFullYear()} SourceSanity</span>
     </footer>
 
     {dialog && (

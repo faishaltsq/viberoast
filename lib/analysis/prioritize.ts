@@ -56,7 +56,7 @@ export function detectWarnings(ctx: AnalysisContext): string[] {
     warnings.push('Repository tree exceeded 2,000 files; partial tree inspected.')
   }
   if (ctx.contentTruncated) {
-    warnings.push('Inspected file content reached 256 KiB budget limit; remaining files were omitted.')
+    warnings.push('Inspected file content reached budget limits; partial content analyzed and truncated source evidence omitted.')
   }
   return warnings
 }

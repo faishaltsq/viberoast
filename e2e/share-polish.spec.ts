@@ -114,7 +114,7 @@ for (const language of ['en', 'id'] as const) {
         const event = page.waitForEvent('download')
         await page.getByRole('button', { name: label, exact: true }).click()
         const download = await event
-        expect(download.suggestedFilename()).toBe(`viberoast-${format}.png`)
+        expect(download.suggestedFilename()).toBe(`sourcesanity-${format}.png`)
         const path = testInfo.outputPath(`${language}-${variant}-${format}.png`)
         await download.saveAs(path)
         await testInfo.attach(`${language}-${variant}-${format}`, { path, contentType: 'image/png' })
@@ -129,10 +129,10 @@ for (const language of ['en', 'id'] as const) {
         const trace = await page.evaluate(() => window.shareCardTraces.at(-1)!)
         await testInfo.attach(`${format}-layout`, { body: JSON.stringify(trace, null, 2), contentType: 'application/json' })
         expect(trace.measures).toBeLessThan(800)
-        const watermark = trace.texts.find(item => item.text === 'viberoast-app.vercel.app')
+        const watermark = trace.texts.find(item => item.text === 'SourceSanity')
         expect(watermark).toBeDefined()
         expect(trace.texts.map(item => item.text).join(' ')).not.toContain(report.id)
-        expect(trace.texts[0].text).toBe('VibeRoast')
+        expect(trace.texts[0].text).toBe('SourceSanity')
         for (const [index, item] of trace.texts.entries()) {
           expect(item.x).toBeGreaterThanOrEqual(47)
           expect(item.x + item.width).toBeLessThanOrEqual(trace.width - 47)

@@ -1,4 +1,4 @@
-import type { Commentary, RepositoryReport, RepoScanResult, RoastReport, ScanResult, WebsiteReport } from '../../lib/types/report'
+import type { Commentary, RepositoryReport, RepoScanResult, ScanResult, WebsiteReport } from '../../lib/types/report'
 
 export const fixtureScan: ScanResult = {
   url: 'https://fixture.example.com/', finalUrl: 'https://fixture.example.com/', scannedAt: '2026-11-02T12:00:00.000Z', status: 'completed', title: 'Fixture storefront', description: '',
@@ -36,7 +36,7 @@ export const fixtureRepoScan: RepoScanResult = {
     { path: 'package.json', type: 'file', size: 350 },
   ],
   selectedFiles: [
-    { path: 'src/index.ts', size: 120, content: 'export const run = () => {};', truncated: false },
+    { path: 'src/index.ts', size: 120, truncated: false },
   ],
   coverage: {
     filesDiscovered: 2,
@@ -73,6 +73,7 @@ export const fixtureRepoScan: RepoScanResult = {
       verification: 'verified',
     },
   ],
+  securityFindings: [],
   strengths: ['TypeScript configured for static type safety.'],
   warnings: [],
   evidenceSummary: 'Repository scan for acme-corp/cool-app at commit aabbccd.',

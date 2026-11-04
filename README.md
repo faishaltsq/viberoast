@@ -1,4 +1,4 @@
-# VibeRoast
+# SourceSanity
 
 Your AI built it. Our AI judges it.
 
@@ -82,17 +82,23 @@ Private reports are process-local capabilities, retained for 15 minutes and capp
 
 ## Repository Judge
 
-VibeRoast includes a read-only GitHub repository judge that analyzes codebases, surfaces architecture and security findings, and delivers Bro Code comedy roasts with actionable agent prompts and terminal share cards.
+SourceSanity includes a read-only GitHub repository judge with deterministic credential detection, bounded security observations, Bro Code commentary, agent remediation briefs and terminal share cards. The comedy meter measures issue density, not repository security.
 
 ### Limits & Guard Rails
 
 - **Public Repositories Only:** Scans are strictly read-only against public GitHub repos (`github.com/owner/repo`). No code execution, private repository access, PR comments, or repository mutations.
 - **Tree Discovery:** Up to 2,000 file paths discovered per repository; oversized trees are truncated and flagged as partial scans.
-- **File Inspection Budget:** Priority selection of up to 30 relevant source and configuration files (max 32 KiB per file, max 256 KiB total inspected source).
+- **Code-quality Budget:** Priority selection of up to 30 relevant source and configuration files (max 32 KiB per file, max 256 KiB total inspected source).
+- **Independent Security Budget:** Up to 100 content attempts, 128 KiB per file, 2 MiB decoded content and 30 seconds. Complete cached quality buffers may be reused. All enumerated filenames receive sensitive-filename checks; skipped, oversized, unavailable and unknown remaining scope are reported separately.
 - **Execution Timeouts:** 10s per GitHub HTTP request, 60s total file extraction, 45s DeepSeek roast generation, and 140s route-level timeout.
-- **Secret Redaction:** Outbound evidence is scrubbed for AWS keys (`AKIA`, `ASIA`, `ABIA`, `ACCA`), fine-grained GitHub PATs (`github_pat_`), Slack/Stripe tokens, private keys, authorization headers, passwords, and emails.
+- **Secret-safe Reports:** Raw retrieved files and matched values stay request-local. Public reports contain inspected-file metadata and sanitized evidence, never `selectedFiles[].content`. Matched values are collected before clipping; security evidence uses structured observations instead of copied source lines. Provider output, retained reports and retrieval pass through the public boundary again.
+- **Deterministic Detection:** Provider-format rules and contextual candidates distinguish private-looking, publishable, placeholder and uncertain values. Recognizing a pattern does not establish that a credential is active. SourceSanity never tests found credentials against issuers.
+- **Static Evidence:** Syntax-aware JavaScript/TypeScript observations are local and bounded; workflow checks are structural heuristics. Unsupported/partial syntax scope is separate from secret-content inspection. A suspicious sink is not proof of an exploitable vulnerability.
+- **Current Commit Only:** Every source observation is pinned to the inspected SHA. Git history is not scanned. A clean result means only: "No security findings detected in the inspected scope."
 - **Injection Defense:** Inspected READMEs, commit messages, comments, and file contents are treated as untrusted data, never as prompt instructions.
 - **Upstream Rate Limiting:** Tracks GitHub API rate limits (`x-ratelimit-remaining`, `x-ratelimit-reset`). When limits are reached, repository scans are throttled with a clear retry window, while website scans remain unaffected.
+
+See the [security threat model](docs/security/security-first-threat-model.md) and [pattern provenance](docs/security/secret-pattern-provenance.md). Unknown credential formats and indirect runtime behavior remain limitations. Rotation, account changes, history rewriting and deployment stay under human control; production smoke requires separate approval.
 
 ## Privacy and product boundaries
 

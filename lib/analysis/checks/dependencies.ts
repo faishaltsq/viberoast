@@ -1,4 +1,5 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 const DEV_TOOLS = new Set([
   'typescript', '@types/node', '@types/react', '@types/react-dom',
@@ -40,7 +41,7 @@ export function checkDependencies(ctx: AnalysisContext): AnalysisFinding[] {
       source: 'repository',
       verification: 'verified',
       filePath: 'package.json',
-      githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, ctx.sensitiveValues),
     })
   }
 
@@ -63,13 +64,15 @@ export function checkDependencies(ctx: AnalysisContext): AnalysisFinding[] {
           description: `Development packages like \`${misplacedDevDeps.slice(0, 3).join(', ')}\` are listed under \`dependencies\` instead of \`devDependencies\`. This bloats the production deployment bundle.`,
           severity: 'medium',
           confidence: 'high',
-          evidence: misplacedDevDeps.slice(0, 5).map((d) => `"${d}": "${deps[d]}"`),
+          evidence: pkgFile.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : misplacedDevDeps.slice(0, 5).map((d) => safeSnippet(`"${d}": "${deps[d]}"`, 120, ctx.sensitiveValues)),
           location: 'package.json:dependencies',
           recommendation: 'Move build and test tools into `devDependencies` using `npm install --save-dev`.',
           source: 'repository',
           verification: 'verified',
           filePath: 'package.json',
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, ctx.sensitiveValues),
         })
       }
 
@@ -83,13 +86,15 @@ export function checkDependencies(ctx: AnalysisContext): AnalysisFinding[] {
           description: `Dependencies specifying "*" or "latest" version ranges risk breaking on every upstream release.`,
           severity: 'high',
           confidence: 'high',
-          evidence: wildVersions.map(([d, v]) => `"${d}": "${v}"`),
+          evidence: pkgFile.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : wildVersions.map(([d, v]) => safeSnippet(`"${d}": "${v}"`, 120, ctx.sensitiveValues)),
           location: 'package.json:dependencies',
           recommendation: 'Pin dependencies to specific semantic version ranges (e.g. `^1.2.0`).',
           source: 'repository',
           verification: 'verified',
           filePath: 'package.json',
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, ctx.sensitiveValues),
         })
       }
 
@@ -103,13 +108,15 @@ export function checkDependencies(ctx: AnalysisContext): AnalysisFinding[] {
           description: foundDeprecated.map((d) => `${d}: ${DEPRECATED_PKGS[d]}`).join(' '),
           severity: 'medium',
           confidence: 'high',
-          evidence: foundDeprecated.map((d) => `"${d}": "${deps[d]}"`),
+          evidence: pkgFile.truncated
+            ? ['[source evidence omitted: file content truncated]']
+            : foundDeprecated.map((d) => safeSnippet(`"${d}": "${deps[d]}"`, 120, ctx.sensitiveValues)),
           location: 'package.json:dependencies',
           recommendation: 'Replace deprecated packages with modern, actively maintained alternatives.',
           source: 'repository',
           verification: 'verified',
           filePath: 'package.json',
-          githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/package.json`,
+          githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/package.json`, ctx.sensitiveValues),
         })
       }
     } catch {

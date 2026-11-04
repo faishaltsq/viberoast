@@ -19,8 +19,19 @@ export function RepoEvidence({ scan, language }: RepoEvidenceProps) {
 
   return (
     <div className="repo-evidence-panel" data-testid="repo-evidence-panel">
-      <div className="terminal-preview" style={{ background: '#20201e', color: '#f5f1e8', padding: '16px 20px', borderRadius: '4px', border: '2px solid var(--ink)', boxShadow: '4px 4px 0 var(--ink)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #444', paddingBottom: '10px', marginBottom: '12px' }}>
+      <div
+        className="terminal-preview"
+        style={{
+          background: '#20201e',
+          color: '#f5f1e8',
+          padding: '16px 20px',
+          borderRadius: '4px',
+          border: '2px solid var(--ink)',
+          boxShadow: '4px 4px 0 var(--ink)',
+          transform: 'none',
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid #444', paddingBottom: '10px', marginBottom: '12px' }}>
           <span className="mono" style={{ color: '#4ade80', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <HardDrive size={14} /> $ git inspect --tree --budget=256k
           </span>
@@ -60,6 +71,7 @@ export function RepoEvidence({ scan, language }: RepoEvidenceProps) {
           type="button"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
+          aria-controls="repo-inspected-files-list"
           className="outline-btn"
           style={{ width: '100%', justifyContent: 'space-between', background: 'none', color: '#f5f1e8', border: '1px solid #555', padding: '8px 12px', fontSize: '12px' }}
         >
@@ -71,7 +83,12 @@ export function RepoEvidence({ scan, language }: RepoEvidenceProps) {
         </button>
 
         {open && (
-          <div style={{ marginTop: '12px', maxHeight: '240px', overflowY: 'auto', background: '#181816', padding: '10px 14px', borderRadius: '4px', border: '1px solid #333', fontSize: '11px', fontFamily: 'monospace' }}>
+          <div
+            id="repo-inspected-files-list"
+            role="region"
+            aria-label={t('Inspected source files', 'Berkas sumber yang diperiksa')}
+            style={{ marginTop: '12px', maxHeight: '240px', overflowY: 'auto', background: '#181816', padding: '10px 14px', borderRadius: '4px', border: '1px solid #333', fontSize: '11px', fontFamily: 'monospace' }}
+          >
             <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
               {selectedFiles.map((file, i) => {
                 const permaLink = `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}`
@@ -81,12 +98,12 @@ export function RepoEvidence({ scan, language }: RepoEvidenceProps) {
                       href={permaLink}
                       target="_blank"
                       rel="noopener noreferrer"
-                      style={{ color: '#60a5fa', textDecoration: 'none' }}
+                      style={{ color: '#60a5fa', textDecoration: 'none', wordBreak: 'break-all' }}
                       title={t('Open file on GitHub at inspected commit', 'Buka berkas di GitHub pada commit yang diperiksa')}
                     >
                       {file.path}
                     </a>
-                    <span style={{ color: '#888' }}>
+                    <span style={{ color: '#888', flexShrink: 0, marginLeft: '8px' }}>
                       {(file.size / 1024).toFixed(1)} KiB {file.truncated ? t('(truncated)', '(terpotong)') : ''}
                     </span>
                   </li>

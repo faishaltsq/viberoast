@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { ArrowRight, ExternalLink, GitBranch, RotateCcw, Star, GitFork } from 'lucide-react'
+import { ArrowRight, ExternalLink, GitBranch, RotateCcw, Star, GitFork, Shield } from 'lucide-react'
 import type { Language, RepositoryReport } from '@/lib/types/report'
 import { calculateScore } from '@/lib/roast/score'
 import { downloadShareCard, shareText } from '@/lib/share/card'
@@ -10,6 +10,7 @@ import { SectionLabel } from '@/components/shared/primitives'
 import { RepoVerdict } from './RepoVerdict'
 import { RepoEvidence } from './RepoEvidence'
 import { RepoFindingCard } from './RepoFindingCard'
+import { RepoSecurity } from './RepoSecurity'
 import styles from './results-hall.module.css'
 
 interface RepoResultsProps {
@@ -30,8 +31,12 @@ export function RepoResults({
   scanning = false,
 }: RepoResultsProps) {
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [viewTab, setViewTab] = useState<'quality' | 'security'>('quality')
   const [sharing, setSharing] = useState<'square' | 'landscape' | null>(null)
-  const [expired, setExpired] = useState(false)
+  const [expiredAt, setExpiredAt] = useState<string | null>(() =>
+    Date.parse(report.expiresAt) <= Date.now() ? report.expiresAt : null
+  )
+  const expired = expiredAt === report.expiresAt
   const id = language === 'id'
   const t = (en: string, indo: string) => (id ? indo : en)
 
@@ -42,12 +47,8 @@ export function RepoResults({
   const isPartial = scan.coverage.treeTruncated || scan.coverage.contentTruncated
 
   useEffect(() => {
-    const remaining = new Date(report.expiresAt).getTime() - Date.now()
-    if (remaining <= 0) {
-      setExpired(true)
-      return
-    }
-    const timer = window.setTimeout(() => setExpired(true), remaining)
+    const remaining = Math.max(0, Date.parse(report.expiresAt) - Date.now())
+    const timer = window.setTimeout(() => setExpiredAt(report.expiresAt), remaining)
     return () => clearTimeout(timer)
   }, [report.expiresAt])
 
@@ -58,6 +59,41 @@ export function RepoResults({
       await downloadShareCard(report, format, language)
     } finally {
       setSharing(null)
+    }
+  }
+
+  const securityFindingsCount =
+    scan.securityFindings && scan.securityFindings.length > 0
+      ? scan.securityFindings.length
+      : scan.findings.filter((f) => f.category === 'Security').length
+  const omittedSecurityCount =
+    scan.omittedSecurityFindings ??
+    scan.securityCoverage?.omittedSecurityFindings ??
+    scan.securityCoverage?.findingsSummary?.omitted ??
+    0
+  const totalSecurityCount =
+    scan.totalSecurityFindings ??
+    scan.securityCoverage?.totalSecurityFindings ??
+    scan.securityCoverage?.findingsSummary?.total ??
+    (securityFindingsCount + omittedSecurityCount)
+
+  const handleTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+      e.preventDefault()
+      setViewTab('security')
+      document.getElementById('tab-security')?.focus()
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      setViewTab('quality')
+      document.getElementById('tab-quality')?.focus()
+    } else if (e.key === 'Home') {
+      e.preventDefault()
+      setViewTab('quality')
+      document.getElementById('tab-quality')?.focus()
+    } else if (e.key === 'End') {
+      e.preventDefault()
+      setViewTab('security')
+      document.getElementById('tab-security')?.focus()
     }
   }
 
@@ -154,48 +190,123 @@ export function RepoResults({
         </aside>
       )}
 
-      <div className="results-grid" style={{ gridTemplateColumns: 'minmax(320px, 1.2fr) minmax(280px, 1fr)', gap: '24px' }}>
+      <div className={`results-grid ${styles.repoGrid}`}>
         <RepoEvidence scan={scan} language={language} />
         <RepoVerdict report={report} language={language} />
       </div>
 
-      <div className="findings-head" style={{ marginTop: '40px' }}>
-        <div>
-          <SectionLabel>{t('THE CODE RECEIPTS', 'BUKTI KODE')}</SectionLabel>
-          <h2>
-            {t('Code findings', 'Temuan kode')} <span>({scan.findings.length})</span>
-          </h2>
+      {/* Tabs & Security Focus Toggle */}
+      <div style={{ marginTop: '40px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', borderBottom: '2px solid var(--ink)' }}>
+          <div
+            className={styles.securityTabGroup}
+            role="tablist"
+            aria-label={t('Analysis view tabs', 'Tab tampilan analisis')}
+          >
+            <button
+              type="button"
+              role="tab"
+              id="tab-quality"
+              aria-selected={viewTab === 'quality'}
+              aria-controls="panel-quality"
+              tabIndex={viewTab === 'quality' ? 0 : -1}
+              className={viewTab === 'quality' ? styles.active : ''}
+              onClick={() => setViewTab('quality')}
+              onKeyDown={handleTabKeyDown}
+              data-testid="tab-quality"
+            >
+              <span>{t('Code Receipts', 'Bukti Kode')}</span>
+              <span className={styles.tabCountBadge} style={{ background: '#4b5563' }}>
+                {scan.findings.length}
+              </span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              id="tab-security"
+              aria-selected={viewTab === 'security'}
+              aria-controls="panel-security"
+              tabIndex={viewTab === 'security' ? 0 : -1}
+              className={viewTab === 'security' ? styles.active : ''}
+              onClick={() => setViewTab('security')}
+              onKeyDown={handleTabKeyDown}
+              data-testid="tab-security"
+            >
+              <Shield size={14} aria-hidden="true" />
+              <span>{t('Security Focus', 'Fokus Keamanan')}</span>
+              <span
+                className={styles.tabCountBadge}
+                style={{ background: totalSecurityCount > 0 ? 'var(--red)' : '#16a34a' }}
+              >
+                {totalSecurityCount}
+              </span>
+            </button>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={viewTab === 'security'}
+            data-testid="security-focus-toggle"
+            className="outline-btn"
+            style={{ marginBottom: '8px', fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            onClick={() => setViewTab((prev) => (prev === 'security' ? 'quality' : 'security'))}
+          >
+            <Shield size={14} aria-hidden="true" />
+            <span>
+              {viewTab === 'security'
+                ? t('Switch to Quality Findings', 'Beralih ke Temuan Kualitas')
+                : t('Switch to Security Focus', 'Beralih ke Fokus Keamanan')}
+            </span>
+          </button>
         </div>
-        <button className="dark-btn" onClick={fixes} data-testid="repo-fix-my-shame-btn">
-          {t('Fix my shame', 'Bantu perbaiki')} <ArrowRight />
-        </button>
       </div>
 
-      {!scan.findings.length && (
-        <p className="notice">
-          {t(
-            'No high-priority findings discovered in the inspected files. This is not a complete guarantee of zero bugs; check coverage limitations above.',
-            'Tidak ada temuan berprioritas tinggi dalam berkas yang diperiksa. Ini bukan jaminan tanpa bug; periksa batasan cakupan di atas.'
+      {viewTab === 'quality' ? (
+        <div id="panel-quality" data-testid="panel-quality" role="tabpanel" aria-labelledby="tab-quality" tabIndex={0}>
+          <div className="findings-head" style={{ marginTop: '24px' }}>
+            <div>
+              <SectionLabel>{t('THE CODE RECEIPTS', 'BUKTI KODE')}</SectionLabel>
+              <h2>
+                {t('Code findings', 'Temuan kode')} <span>({scan.findings.length})</span>
+              </h2>
+            </div>
+            <button className="dark-btn" onClick={fixes} data-testid="repo-fix-my-shame-btn">
+              {t('Fix my shame', 'Bantu perbaiki')} <ArrowRight />
+            </button>
+          </div>
+
+          {!scan.findings.length && (
+            <p className="notice">
+              {t(
+                'No high-priority findings discovered in the inspected files. This is not a complete guarantee of zero bugs; check coverage limitations above.',
+                'Tidak ada temuan berprioritas tinggi dalam berkas yang diperiksa. Ini bukan jaminan tanpa bug; periksa batasan cakupan di atas.'
+              )}
+            </p>
           )}
-        </p>
-      )}
 
-      <div className="finding-list">
-        {scan.findings.map((finding, index) => (
-          <RepoFindingCard
-            key={finding.id}
-            finding={finding}
-            index={index}
-            owner={scan.owner}
-            repo={scan.repo}
-            sha={scan.sha}
-            commentary={report.commentary}
-            expanded={expanded === finding.id}
-            onToggle={() => setExpanded(expanded === finding.id ? null : finding.id)}
-            language={language}
-          />
-        ))}
-      </div>
+          <div className="finding-list">
+            {scan.findings.map((finding, index) => (
+              <RepoFindingCard
+                key={finding.id}
+                finding={finding}
+                index={index}
+                owner={scan.owner}
+                repo={scan.repo}
+                sha={scan.sha}
+                commentary={report.commentary}
+                expanded={expanded === finding.id}
+                onToggle={() => setExpanded(expanded === finding.id ? null : finding.id)}
+                language={language}
+              />
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div id="panel-security" data-testid="panel-security" role="tabpanel" aria-labelledby="tab-security" tabIndex={0}>
+          <RepoSecurity scan={scan} language={language} />
+        </div>
+      )}
 
       <section className="scan-strengths">
         <SectionLabel>{t('SOLID ENGINEERING PRACTICES', 'PRAKTIK REKAYASA YANG BAIK')}</SectionLabel>

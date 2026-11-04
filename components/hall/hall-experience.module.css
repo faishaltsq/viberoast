@@ -1,0 +1,139 @@
+/* Hall Experience shell styling */
+
+.hallShell {
+  --gray: #686158;
+  --red: #b33528;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.hallNav {
+  height: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--ink);
+  background: var(--paper);
+}
+
+.brandLink {
+  color: var(--ink);
+  font-weight: 900;
+  font-size: 20px;
+  letter-spacing: -1.2px;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+}
+
+.brandLink:hover {
+  color: var(--red);
+}
+
+.brandLink:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 4px;
+}
+
+.brandFlame {
+  color: var(--red);
+  font-size: 18px;
+}
+
+.brandTag {
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  color: var(--red);
+  border: 1px solid var(--red);
+  padding: 2px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-left: 8px;
+}
+
+.navControls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.langToggle {
+  border: 1.5px solid var(--ink);
+  background: #fffdf7;
+  color: var(--ink);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  font-family: monospace;
+  cursor: pointer;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.langToggle:hover {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.langToggle:focus-visible {
+  outline: 2px solid var(--red);
+  outline-offset: 3px;
+}
+
+.langActive {
+  color: var(--red);
+}
+
+.expiredScreen {
+  min-height: calc(100vh - 120px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+}
+
+.expiredCard {
+  width: min(500px, 100%);
+  border: 2px solid var(--ink);
+  background: #fffdf7;
+  padding: 32px 24px;
+  box-shadow: 6px 6px 0 var(--ink);
+  text-align: center;
+}
+
+.expiredCard h2 {
+  font-size: 28px;
+  margin: 0 0 12px;
+  letter-spacing: -0.04em;
+}
+
+.expiredCard p {
+  color: var(--gray);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 24px;
+}
+
+@media (max-width: 680px) {
+  .hallNav {
+    height: auto;
+    padding-block: 12px;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .navControls {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .brandTag {
+    display: none;
+  }
+}

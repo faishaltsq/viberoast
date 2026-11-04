@@ -57,20 +57,20 @@ test('repository judge mode toggle, validation, inspection results, and agent fi
   // Verify Fix My Shame transition
   await page.getByTestId('repo-fix-my-shame-btn').click()
   await expect(page.getByTestId('repo-fixes-view')).toBeVisible()
-  await expect(page.locator('pre')).toContainText('VibeRoast repository implementation brief')
+  await expect(page.locator('pre')).toContainText('SourceSanity repository implementation brief')
   await expect(page.locator('pre')).toContainText('aabbccd')
 
   // Verify Markdown prompt download
   const mdDownloadEvent = page.waitForEvent('download')
   await page.getByTestId('download-md-btn').click()
   const mdDownload = await mdDownloadEvent
-  expect(mdDownload.suggestedFilename()).toBe('viberoast-acme-corp-cool-app-codex.md')
+  expect(mdDownload.suggestedFilename()).toBe('sourcesanity-acme-corp-cool-app-codex.md')
   const mdStream = await mdDownload.createReadStream()
   expect(mdStream).not.toBeNull()
   const mdChunks: Buffer[] = []
   for await (const chunk of mdStream!) mdChunks.push(Buffer.from(chunk))
   const markdownText = Buffer.concat(mdChunks).toString('utf8')
-  expect(markdownText).toContain('VibeRoast repository implementation brief')
+  expect(markdownText).toContain('SourceSanity repository implementation brief')
   expect(markdownText).toContain('acme-corp/cool-app')
 
   // Back to results
@@ -81,7 +81,7 @@ test('repository judge mode toggle, validation, inspection results, and agent fi
   const squareDownloadEvent = page.waitForEvent('download')
   await page.getByTestId('download-square-png').click()
   const squareDownload = await squareDownloadEvent
-  expect(squareDownload.suggestedFilename()).toBe('viberoast-square.png')
+  expect(squareDownload.suggestedFilename()).toBe('sourcesanity-square.png')
   const squareStream = await squareDownload.createReadStream()
   expect(squareStream).not.toBeNull()
   const squareChunks: Buffer[] = []
@@ -93,7 +93,7 @@ test('repository judge mode toggle, validation, inspection results, and agent fi
   const landscapeDownloadEvent = page.waitForEvent('download')
   await page.getByTestId('download-landscape-png').click()
   const landscapeDownload = await landscapeDownloadEvent
-  expect(landscapeDownload.suggestedFilename()).toBe('viberoast-landscape.png')
+  expect(landscapeDownload.suggestedFilename()).toBe('sourcesanity-landscape.png')
   const landscapeStream = await landscapeDownload.createReadStream()
   expect(landscapeStream).not.toBeNull()
   const landscapeChunks: Buffer[] = []

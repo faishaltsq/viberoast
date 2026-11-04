@@ -10,6 +10,17 @@ import { checkGitDx } from '../lib/analysis/checks/git-dx'
 import { deduplicateFindings } from '../lib/analysis/deduplicate'
 import { prioritizeFindings } from '../lib/analysis/prioritize'
 
+it('never copies opaque source arguments into security evidence', () => {
+  const opaque = 'opaque-fixture-outside-known-credential-formats'
+  const content = `eval("${opaque}"); const note = "${opaque}"`
+  const findings = checkSecurity(createMockContext({
+    files: [{ path: 'src/runtime.ts', size: content.length, content, truncated: false }],
+  }))
+  expect(findings.some(f => f.id.startsWith('sec-dynamic-eval-'))).toBe(true)
+  expect(JSON.stringify(findings)).not.toContain(opaque)
+  expect(findings.flatMap(f => f.evidence).join(' ')).toContain('source arguments withheld')
+})
+
 function createMockContext(overrides: Partial<AnalysisContext> = {}): AnalysisContext {
   return {
     owner: 'test-owner',
@@ -261,6 +272,96 @@ describe('Repository Analysis Engine', () => {
       expect(findings.some((f) => f.id === 'sec-committed-env-file')).toBe(true)
     })
 
+    it('detects nested .env variants, private keys, and config credentials across all tree entries with line numbers absent', () => {
+      const ctx = createMockContext({
+        tree: [
+          { path: '.env', type: 'file', size: 100 },
+          { path: 'apps/web/.env.local', type: 'file', size: 100 },
+          { path: 'services/api/.env.staging', type: 'file', size: 100 },
+          { path: '.env.example', type: 'file', size: 100 },
+          { path: 'certs/server.key', type: 'file', size: 100 },
+          { path: 'keys/id_rsa', type: 'file', size: 100 },
+          { path: 'config/public.pem', type: 'file', size: 100 },
+          { path: 'config/credentials.json', type: 'file', size: 100 },
+          { path: 'auth/service-account.json', type: 'file', size: 100 },
+        ],
+      })
+
+      const findings = checkSecurity(ctx)
+
+      // Nested .env
+      const nestedEnv = findings.find((f) => f.filePath === 'apps/web/.env.local')
+      expect(nestedEnv).toBeDefined()
+      expect(nestedEnv?.severity).toBe('medium')
+      expect(nestedEnv?.lineStart).toBeUndefined()
+      expect(nestedEnv?.lineEnd).toBeUndefined()
+      expect(nestedEnv?.description).not.toContain('containing plaintext credentials')
+
+      // .env.example: metadata risk only, no verified private credential claim
+      const envExample = findings.find((f) => f.filePath === '.env.example')
+      expect(envExample).toBeDefined()
+      expect(envExample?.severity).toBe('medium')
+      expect(envExample?.lineStart).toBeUndefined()
+      expect(envExample?.description).not.toContain('containing plaintext credentials')
+
+      // Keys
+      const serverKey = findings.find((f) => f.filePath === 'certs/server.key')
+      expect(serverKey).toBeDefined()
+      expect(serverKey?.severity).toBe('medium')
+      expect(serverKey?.lineStart).toBeUndefined()
+
+      // config/public.pem: metadata risk, no private credential claim
+      const publicPem = findings.find((f) => f.filePath === 'config/public.pem')
+      expect(publicPem).toBeDefined()
+      expect(publicPem?.severity).toBe('medium')
+      expect(publicPem?.lineStart).toBeUndefined()
+      expect(publicPem?.description).not.toContain('containing plaintext private key')
+
+      // Config credentials
+      const creds = findings.find((f) => f.filePath === 'config/credentials.json')
+      expect(creds).toBeDefined()
+      expect(creds?.severity).toBe('medium')
+      expect(creds?.lineStart).toBeUndefined()
+
+      const sa = findings.find((f) => f.filePath === 'auth/service-account.json')
+      expect(sa).toBeDefined()
+      expect(sa?.severity).toBe('medium')
+      expect(sa?.lineStart).toBeUndefined()
+    })
+
+    it('produces distinct bounded IDs for long shared-prefix paths and path punctuation collisions that deduplication retains', () => {
+      const longPrefix = 'services/authentication/oauth-provider/credentials/enterprise-directory-v2/'
+      const path1 = `${longPrefix}cluster-primary/service-account.json`
+      const path2 = `${longPrefix}cluster-secondary/service-account.json`
+      const punct1 = 'certs/server_key.pem'
+      const punct2 = 'certs/server-key.pem'
+
+      const ctx = createMockContext({
+        tree: [
+          { path: path1, type: 'file', size: 100 },
+          { path: path2, type: 'file', size: 100 },
+          { path: punct1, type: 'file', size: 100 },
+          { path: punct2, type: 'file', size: 100 },
+        ],
+      })
+
+      const rawFindings = checkSecurity(ctx)
+      expect(rawFindings).toHaveLength(4)
+
+      for (const finding of rawFindings) {
+        expect(finding.id.length).toBeLessThanOrEqual(100)
+      }
+
+      const ids = new Set(rawFindings.map((f) => f.id))
+      expect(ids.size).toBe(4)
+
+      const deduped = deduplicateFindings(rawFindings)
+      expect(deduped).toHaveLength(4)
+      expect(deduped.map((f) => f.filePath)).toEqual(
+        expect.arrayContaining([path1, path2, punct1, punct2])
+      )
+    })
+
     it('detects hardcoded AWS access keys and redacts evidence', () => {
       const ctx = createMockContext({
         files: [
@@ -275,8 +376,62 @@ describe('Repository Analysis Engine', () => {
       const findings = checkSecurity(ctx)
       const secretFinding = findings.find((f) => f.id.includes('hardcoded-secret'))
       expect(secretFinding).toBeDefined()
-      expect(secretFinding?.severity).toBe('high')
+      expect(secretFinding?.severity).toBe('medium')
       expect(secretFinding?.evidence[0]).toContain('[redacted]')
+    })
+
+    it('redacts tokens crossing the 120-char evidence boundary before clipping without leaving split prefix fragments', () => {
+      const secretToken = 'AKIA1234567890ABCDEF' // 20 chars
+      // Position secret so that character 120 falls right inside the token
+      const fullLine = `${'a'.repeat(105)} = "${secretToken}" + "${'b'.repeat(30)}"`
+      const prefixFragment = secretToken.slice(0, 11) // e.g. 'AKIA1234567'
+
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/config.ts',
+            size: 500,
+            truncated: false,
+            content: `${fullLine}\n`,
+          },
+        ],
+        sensitiveValues: [secretToken],
+      })
+
+      const findings = checkSecurity(ctx)
+      const finding = findings.find((f) => f.id.includes('hardcoded-secret'))
+      expect(finding).toBeDefined()
+      expect(finding?.evidence[0].length).toBeLessThanOrEqual(120)
+      // Evidence must NOT contain the secret or its prefix fragment
+      expect(finding?.evidence[0]).not.toContain(secretToken)
+      expect(finding?.evidence[0]).not.toContain(prefixFragment)
+      expect(finding?.evidence[0]).toContain('[redacted]')
+    })
+
+    it('handles multibyte non-ASCII and emoji prefixes before 120-char clipping boundary safely', () => {
+      const emojiPrefix = '🚀🔥🎉'.repeat(30)
+      const secretToken = 'AKIA1234567890ABCDEF'
+      const line = `${emojiPrefix} ${secretToken}`
+
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/emoji-secret.ts',
+            size: 500,
+            truncated: false,
+            content: `${line}\n`,
+          },
+        ],
+        sensitiveValues: [secretToken],
+      })
+
+      const findings = checkSecurity(ctx)
+      const finding = findings.find((f) => f.id.includes('hardcoded-secret'))
+      expect(finding).toBeDefined()
+      expect(finding?.evidence[0].length).toBeLessThanOrEqual(120)
+      expect(finding?.evidence[0]).not.toContain(secretToken)
+      // Must not end with broken surrogate
+      expect(/[\uD800-\uDBFF]$/.test(finding?.evidence[0] || '')).toBe(false)
     })
 
     it('detects dangerous eval execution', () => {
@@ -382,6 +537,22 @@ describe('Repository Analysis Engine', () => {
         location: 'src/main.ts:1-50',
       }
       expect(validateFinding(findingRange, ctx).location).toBe('src/main.ts:1-5')
+    })
+
+    it('evidence summary uses admitted UTF-8 bytes for truncated files (not advertised size)', () => {
+      const ctx = createMockContext({
+        files: [
+          {
+            path: 'src/truncated.txt',
+            size: 100000,
+            content: 'x'.repeat(32768),
+            truncated: true,
+          },
+        ],
+      })
+      const result = analyzeRepository(ctx)
+      expect(result.evidenceSummary).toContain('32768 bytes inspected')
+      expect(result.evidenceSummary).not.toContain('100000 bytes inspected')
     })
   })
 })

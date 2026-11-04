@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Check, Copy, ExternalLink, FileText } from 'lucide-react'
-import type { Language, PromptOptions, RepositoryReport } from '@/lib/types/report'
-import { generatePrompt } from '@/lib/prompts/generate'
-import { Mascot } from '@/components/bro-code/mascot'
+import type { Finding, Language, PromptOptions, RepositoryReport } from '@/lib/types/report'
+import { generatePrompt, mergeRepoFindings, safeGitHubPermaUrl } from '@/lib/prompts/generate'
+import { redactSecrets } from '@/lib/security/redact'
 import { downloadText, SectionLabel } from '@/components/shared/primitives'
 import styles from './fixes.module.css'
 
@@ -39,14 +39,35 @@ export function RepositoryFix({
   const preview = useRef<HTMLPreElement>(null)
 
   const scan = report.repoScan
-  const sorted = useMemo(
-    () => [...scan.findings].sort((a, b) => priority[a.severity] - priority[b.severity]),
-    [scan.findings]
-  )
+  const isSecurity = (f: Finding) => Boolean(f.security || f.category === 'Security')
+  const sorted = useMemo(() => {
+    const merged = mergeRepoFindings(scan.securityFindings, scan.findings)
+    return merged.sort((a, b) => {
+      const secDiff = (isSecurity(b) ? 1 : 0) - (isSecurity(a) ? 1 : 0)
+      if (secDiff !== 0) return secDiff
+      return priority[a.severity] - priority[b.severity]
+    })
+  }, [scan.securityFindings, scan.findings])
+
+  const knownSet = useMemo(() => new Set(sorted.map((f) => f.id)), [sorted])
+
+  const boundedSelectedIds = useMemo(() => {
+    const seen = new Set<string>()
+    const result: string[] = []
+    for (const id of selectedIds) {
+      if (knownSet.has(id) && !seen.has(id)) {
+        seen.add(id)
+        result.push(id)
+        if (result.length === 60) break
+      }
+    }
+    return result
+  }, [selectedIds, knownSet])
+
   const visible = useMemo(() => (mode === 'quick' ? sorted.slice(0, 3) : sorted), [mode, sorted])
   const activeIds = useMemo(
-    () => (mode === 'selected' ? selectedIds : visible.map((f) => f.id)),
-    [mode, selectedIds, visible]
+    () => (mode === 'selected' ? boundedSelectedIds : visible.slice(0, 60).map((f) => f.id)),
+    [mode, boundedSelectedIds, visible]
   )
 
   const prompt = useMemo(() => {
@@ -74,7 +95,16 @@ export function RepositoryFix({
 
   const changeSelection = (ids: string[]) => {
     clearFeedback()
-    select(ids)
+    const seen = new Set<string>()
+    const clamped: string[] = []
+    for (const id of ids) {
+      if (knownSet.has(id) && !seen.has(id)) {
+        seen.add(id)
+        clamped.push(id)
+        if (clamped.length === 60) break
+      }
+    }
+    select(clamped)
   }
 
   const copy = async () => {
@@ -125,7 +155,7 @@ export function RepositoryFix({
     try {
       downloadText(
         prompt,
-        `viberoast-${scan.owner}-${scan.repo}-${preset.toLowerCase().replaceAll(' ', '-')}.md`
+        `sourcesanity-${redactSecrets(scan.owner)}-${redactSecrets(scan.repo)}-${preset.toLowerCase().replaceAll(' ', '-')}.md`
       )
       setFeedback({
         prompt,
@@ -159,8 +189,8 @@ export function RepositoryFix({
       </h1>
       <p className="muted intro">
         {t(
-          `Source-grounded fix instructions for ${scan.owner}/${scan.repo} (commit ${scan.sha.slice(0, 7)}). Generates exact file locations, evidence, and acceptance criteria for your AI coding agent.`,
-          `Instruksi perbaikan berbasis kode untuk ${scan.owner}/${scan.repo} (commit ${scan.sha.slice(0, 7)}). Menyediakan lokasi berkas persis, bukti, dan kriteria penerimaan untuk agen AI-mu.`
+          `Source-grounded fix instructions for ${redactSecrets(scan.owner)}/${redactSecrets(scan.repo)} (commit ${scan.sha.slice(0, 7)}). Generates exact file locations, evidence, and acceptance criteria for your AI coding agent.`,
+          `Instruksi perbaikan berbasis kode untuk ${redactSecrets(scan.owner)}/${redactSecrets(scan.repo)} (commit ${scan.sha.slice(0, 7)}). Menyediakan lokasi berkas persis, bukti, dan kriteria penerimaan untuk agen AI-mu.`
         )}
       </p>
 
@@ -180,7 +210,7 @@ export function RepositoryFix({
               : value === 'full'
               ? t('Full Rehab', 'Semua Temuan')
               : t('Selected Issues', 'Temuan Pilihan')}
-            <span>{value === 'quick' ? Math.min(3, sorted.length) : value === 'full' ? sorted.length : selectedIds.length}</span>
+            <span>{value === 'quick' ? Math.min(3, sorted.length) : value === 'full' ? Math.min(60, sorted.length) : boundedSelectedIds.length}</span>
           </button>
         ))}
       </div>
@@ -189,7 +219,12 @@ export function RepositoryFix({
         {mode === 'quick'
           ? t('Quick Fix includes up to three highest-severity findings.', 'Perbaikan Cepat mencakup maksimal tiga temuan prioritas tertinggi.')
           : mode === 'full'
-          ? t('Full Rehab includes all recorded repository findings.', 'Semua Temuan mencakup seluruh temuan yang tercatat pada repositori.')
+          ? sorted.length > 60
+            ? t(
+                `Full Rehab includes the first 60 prioritized findings (${sorted.length - 60} remaining in additional reviewed batches).`,
+                `Semua Temuan mencakup 60 temuan prioritas pertama (${sorted.length - 60} tersisa dalam batch tinjauan berikutnya).`
+              )
+            : t('Full Rehab includes all recorded repository findings.', 'Semua Temuan mencakup seluruh temuan yang tercatat pada repositori.')
           : t('Choose specific findings to include in your agent implementation brief.', 'Pilih temuan spesifik untuk dimasukkan ke brief implementasi agenmu.')}
       </p>
 
@@ -197,20 +232,20 @@ export function RepositoryFix({
         <div className="button-row selection-actions">
           <button
             className="outline-btn"
-            disabled={!sorted.length || selectedIds.length === sorted.length}
-            onClick={() => changeSelection(sorted.map((f) => f.id))}
+            disabled={!sorted.length || boundedSelectedIds.length === Math.min(60, sorted.length)}
+            onClick={() => changeSelection(sorted.slice(0, 60).map((f) => f.id))}
           >
             {t('Select all', 'Pilih semua')}
           </button>
           <button
             className="outline-btn"
-            disabled={!selectedIds.length}
+            disabled={!boundedSelectedIds.length}
             onClick={() => changeSelection([])}
           >
             {t('Deselect all', 'Batalkan semua')}
           </button>
           <span role="status">
-            {selectedIds.length} {t('of', 'dari')} {sorted.length} {t('selected', 'dipilih')}
+            {boundedSelectedIds.length} {t('of', 'dari')} {sorted.length} {t('selected', 'dipilih')}{sorted.length > 60 ? ` (${t('max 60 per prompt', 'maks 60 per prompt')})` : ''}
           </span>
         </div>
       )}
@@ -219,9 +254,8 @@ export function RepositoryFix({
         <div className="fix-cards">
           {visible.map((finding) => {
             const isChecked = activeIds.includes(finding.id)
-            const filePath = finding.location.split(':')[0]
-            const linePart = finding.location.split(':')[1] ? `#L${finding.location.split(':')[1]}` : ''
-            const permaUrl = `https://github.com/${scan.owner}/${scan.repo}/blob/${scan.sha}/${filePath}${linePart}`
+            const permaUrl = safeGitHubPermaUrl(scan.owner, scan.repo, scan.sha, finding.location, finding.security)
+            const displayLocation = redactSecrets(finding.location)
 
             return (
               <div
@@ -231,28 +265,28 @@ export function RepositoryFix({
                 style={{ cursor: mode === 'selected' ? 'pointer' : 'default' }}
                 onClick={() => {
                   if (mode !== 'selected') return
-                  changeSelection(
-                    isChecked
-                      ? selectedIds.filter((id) => id !== finding.id)
-                      : [...selectedIds, finding.id]
-                  )
+                  if (isChecked) {
+                    changeSelection(boundedSelectedIds.filter((id) => id !== finding.id))
+                  } else if (boundedSelectedIds.length < 60) {
+                    changeSelection([...boundedSelectedIds, finding.id])
+                  }
                 }}
               >
                 <div
                   className="fix-check"
                   role="checkbox"
                   aria-checked={isChecked}
-                  aria-label={finding.title}
+                  aria-label={redactSecrets(finding.title)}
                   tabIndex={mode === 'selected' ? 0 : -1}
                   onKeyDown={(e) => {
                     if (e.key === ' ' || e.key === 'Enter') {
                       e.preventDefault()
                       if (mode === 'selected') {
-                        changeSelection(
-                          isChecked
-                            ? selectedIds.filter((id) => id !== finding.id)
-                            : [...selectedIds, finding.id]
-                        )
+                        if (isChecked) {
+                          changeSelection(boundedSelectedIds.filter((id) => id !== finding.id))
+                        } else if (boundedSelectedIds.length < 60) {
+                          changeSelection([...boundedSelectedIds, finding.id])
+                        }
                       }
                     }
                   }}
@@ -262,22 +296,28 @@ export function RepositoryFix({
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                     <small className="mono" style={{ color: 'var(--red)', fontWeight: 800 }}>
-                      {finding.category} · {finding.severity.toUpperCase()}
+                      {redactSecrets(finding.category)} · {finding.severity.toUpperCase()}
                     </small>
-                    <a
-                      href={permaUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      style={{ fontSize: '11px', color: '#686158', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
-                    >
-                      <code>{finding.location}</code> <ExternalLink size={11} />
-                    </a>
+                    {permaUrl ? (
+                      <a
+                        href={permaUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{ fontSize: '11px', color: '#686158', display: 'inline-flex', alignItems: 'center', gap: '3px' }}
+                      >
+                        <code>{displayLocation}</code> <ExternalLink size={11} />
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: '11px', color: '#686158' }}>
+                        <code>{displayLocation}</code>
+                      </span>
+                    )}
                   </div>
-                  <h3>{finding.title}</h3>
-                  <p>{finding.description}</p>
+                  <h3>{redactSecrets(finding.title)}</h3>
+                  <p>{redactSecrets(finding.description)}</p>
                   <p className="fix-rec" style={{ fontSize: '12px', color: '#29533b', margin: 0 }}>
-                    <b>{t('Recommended action', 'Tindakan yang disarankan')}:</b> {finding.recommendation}
+                    <b>{t('Recommended action', 'Tindakan yang disarankan')}:</b> {redactSecrets(finding.recommendation)}
                   </p>
                 </div>
               </div>

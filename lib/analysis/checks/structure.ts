@@ -1,4 +1,5 @@
 import type { AnalysisContext, AnalysisFinding } from '../types'
+import { redactUrl, safeSnippet } from '../../security/redact'
 
 const SOURCE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.py', '.rb', '.go', '.rs', '.java', '.c', '.cpp', '.cs', '.php', '.vue', '.svelte'])
 
@@ -24,10 +25,15 @@ export function checkStructure(ctx: AnalysisContext): AnalysisFinding[] {
         description: `This file contains ${lines.length} lines of code, exceeding the 500-line recommended threshold for single-responsibility modules.`,
         severity: lines.length > 1000 ? 'high' : 'medium',
         confidence: 'high',
-        evidence: [
-          `File has ${lines.length} lines and ${(file.size / 1024).toFixed(1)} KiB in size.`,
-          `First line: ${lines[0]?.slice(0, 80) || '(empty)'}`,
-        ],
+        evidence: file.truncated
+          ? [
+              `File has ${lines.length} lines and ${(file.size / 1024).toFixed(1)} KiB in size.`,
+              '[source evidence omitted: file content truncated]',
+            ]
+          : [
+              `File has ${lines.length} lines and ${(file.size / 1024).toFixed(1)} KiB in size.`,
+              `First line: ${safeSnippet(lines[0] || '(empty)', 80, ctx.sensitiveValues)}`,
+            ],
         location: `${file.path}:1-${lines.length}`,
         recommendation: `Refactor ${file.path} into smaller, focused modules or separate domain logic from rendering.`,
         source: 'repository',
@@ -35,7 +41,7 @@ export function checkStructure(ctx: AnalysisContext): AnalysisFinding[] {
         filePath: file.path,
         lineStart: 1,
         lineEnd: lines.length,
-        githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L1-L${lines.length}`,
+        githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${file.path}#L1-L${lines.length}`, ctx.sensitiveValues),
       })
     }
   }
@@ -52,13 +58,13 @@ export function checkStructure(ctx: AnalysisContext): AnalysisFinding[] {
       description: `Discovered files nested ${depth} or more folders deep (e.g. ${sample.path}). Deep folder hierarchies impair discoverability and create brittle import paths.`,
       severity: 'low',
       confidence: 'high',
-      evidence: deeplyNested.slice(0, 3).map((e) => `Nested path: ${e.path}`),
+      evidence: deeplyNested.slice(0, 3).map((e) => `Nested path: ${safeSnippet(e.path, 120, ctx.sensitiveValues)}`),
       location: sample.path,
       recommendation: 'Flatten the directory architecture by organizing by feature or bounded context rather than deeply nested technical layers.',
       source: 'repository',
       verification: 'verified',
       filePath: sample.path,
-      githubPermaUrl: `https://github.com/${owner}/${repo}/blob/${sha}/${sample.path}`,
+      githubPermaUrl: redactUrl(`https://github.com/${owner}/${repo}/blob/${sha}/${sample.path}`, ctx.sensitiveValues),
     })
   }
 
