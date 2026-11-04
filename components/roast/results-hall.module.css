@@ -18,6 +18,141 @@
   }
 }
 
+.securityPanel {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.securityNoticeBox {
+  background: #20201e;
+  color: #f5f1e8;
+  border: 2px solid var(--ink);
+  box-shadow: 4px 4px 0 var(--ink);
+  padding: 14px 18px;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
+
+.securityMetrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 12px;
+  box-sizing: border-box;
+}
+
+.securityMetricCard {
+  border: 2px solid var(--ink);
+  background: #fffdf7;
+  padding: 12px 14px;
+  box-shadow: 3px 3px 0 var(--ink);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.securityMetricCard strong {
+  display: block;
+  font-size: 24px;
+  font-family: monospace;
+  line-height: 1.1;
+  color: var(--ink);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+
+.securityMetricCard small {
+  font-size: 11px;
+  font-weight: 700;
+  color: #716c65;
+  text-transform: uppercase;
+}
+
+.securityCoverageBox {
+  border: 2px solid var(--ink);
+  background: #20201e;
+  color: #f5f1e8;
+  padding: 16px 18px;
+  border-radius: 4px;
+  box-shadow: 4px 4px 0 var(--ink);
+  font-size: 12px;
+  box-sizing: border-box;
+  overflow-wrap: break-word;
+}
+
+.securityBadgeSecret {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--red);
+  color: #fffdf7;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  border: 1px solid var(--ink);
+  white-space: nowrap;
+}
+
+.securityBadgeHotspot {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #f59e0b;
+  color: #20201e;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-family: monospace;
+  font-weight: 700;
+  border: 1px solid var(--ink);
+  white-space: nowrap;
+}
+
+.securityTabGroup {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.securityTabGroup button {
+  border: 2px solid var(--ink);
+  border-bottom: 0;
+  background: #ebe7de;
+  padding: 10px 16px;
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+  white-space: nowrap;
+  transform: translateY(2px);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.securityTabGroup button:hover {
+  background: #dfdad0;
+}
+
+.securityTabGroup button.active,
+.securityTabGroup button[aria-selected="true"] {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+.tabCountBadge {
+  border-radius: 10px;
+  padding: 2px 6px;
+  font: 10px monospace;
+  color: white;
+}
+
 .results :global(.site-shot) {
   min-height: 0;
 }
