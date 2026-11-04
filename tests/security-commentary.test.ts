@@ -28,6 +28,21 @@ interface CapturedPayload {
   findings: Array<{ id: string }>
 }
 
+function requireCapturedPayload(value: unknown): CapturedPayload {
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    !('commentaryScope' in value) ||
+    typeof (value as { commentaryScope: unknown }).commentaryScope !== 'object' ||
+    (value as { commentaryScope: object | null }).commentaryScope === null ||
+    !('findings' in value) ||
+    !Array.isArray((value as { findings: unknown }).findings)
+  ) {
+    throw new Error('Expected non-null CapturedPayload with commentaryScope and findings')
+  }
+  return value as CapturedPayload
+}
+
 it('fails closed instead of exporting an invalid credential-bearing scan', () => {
   const value = 'ghp_' + 'Q7n4'.repeat(9)
   const scan = makeSampleScan({ sha: 'invalid', owner: value, repo: value, defaultBranch: value })
@@ -541,10 +556,12 @@ describe('security-first repository commentary', () => {
       const body = JSON.parse(init!.body as string)
       const userContent = body.messages[1].content as string
       const jsonStart = userContent.indexOf('{')
-      capturedPayload = JSON.parse(userContent.slice(jsonStart))
+      const rawPayload: unknown = JSON.parse(userContent.slice(jsonStart))
+      const payload = requireCapturedPayload(rawPayload)
+      capturedPayload = payload
 
       // Synthesize model response matching exactly the selectedIds
-      const selectedIds: string[] = capturedPayload.commentaryScope.selectedIds
+      const selectedIds: string[] = payload.commentaryScope.selectedIds
       const findings = selectedIds.map((id) => ({
         id,
         evidenceIds: [id],
@@ -581,23 +598,24 @@ describe('security-first repository commentary', () => {
 
     expect(fetchSpy).toHaveBeenCalled()
     expect(capturedPayload).not.toBeNull()
+    const payload = requireCapturedPayload(capturedPayload)
 
     // Bounded findings in payload
-    expect(capturedPayload.findings.length).toBeLessThanOrEqual(60)
-    expect(capturedPayload.commentaryScope.selectedIds.length).toBeLessThanOrEqual(60)
-    expect(capturedPayload.commentaryScope.selectedCount).toBeLessThanOrEqual(60)
+    expect(payload.findings.length).toBeLessThanOrEqual(60)
+    expect(payload.commentaryScope.selectedIds.length).toBeLessThanOrEqual(60)
+    expect(payload.commentaryScope.selectedCount).toBeLessThanOrEqual(60)
 
     // Truthful tracking of omitted findings
-    expect(capturedPayload.commentaryScope.totalSecurityFindings).toBe(70)
-    expect(capturedPayload.commentaryScope.omittedSecurityFindings).toBeGreaterThanOrEqual(10)
-    expect(capturedPayload.commentaryScope.totalQualityFindings).toBe(20)
+    expect(payload.commentaryScope.totalSecurityFindings).toBe(70)
+    expect(payload.commentaryScope.omittedSecurityFindings).toBeGreaterThanOrEqual(10)
+    expect(payload.commentaryScope.totalQualityFindings).toBe(20)
 
     // Byte budget strictly under 48 KiB (49,152 bytes)
-    const payloadBytes = new TextEncoder().encode(JSON.stringify(capturedPayload)).byteLength
+    const payloadBytes = new TextEncoder().encode(JSON.stringify(payload)).byteLength
     expect(payloadBytes).toBeLessThanOrEqual(48 * 1024)
 
     // Result commentary has matching findings count
-    expect(result.commentary.findings.length).toBe(capturedPayload.commentaryScope.selectedCount)
+    expect(result.commentary.findings.length).toBe(payload.commentaryScope.selectedCount)
 
     // Public scan was NOT mutated
     expect(scan.securityFindings).toHaveLength(70)
@@ -622,9 +640,11 @@ describe('security-first repository commentary', () => {
       const body = JSON.parse(init!.body as string)
       const userContent = body.messages[1].content as string
       const jsonStart = userContent.indexOf('{')
-      capturedPayload = JSON.parse(userContent.slice(jsonStart))
+      const rawPayload: unknown = JSON.parse(userContent.slice(jsonStart))
+      const payload = requireCapturedPayload(rawPayload)
+      capturedPayload = payload
 
-      const selectedIds: string[] = capturedPayload.commentaryScope.selectedIds
+      const selectedIds: string[] = payload.commentaryScope.selectedIds
       const findings = selectedIds.map((id) => ({
         id,
         evidenceIds: [id],
@@ -659,16 +679,19 @@ describe('security-first repository commentary', () => {
 
     const result = await generateRepoRoast(scan, { language: 'en', intensity: 'No Mercy' })
 
-    expect(capturedPayload.commentaryScope.selectedIds).toEqual([
+    expect(capturedPayload).not.toBeNull()
+    const payload = requireCapturedPayload(capturedPayload)
+
+    expect(payload.commentaryScope.selectedIds).toEqual([
       'sec-001',
       'sec-002',
       'qual-001',
       'qual-002',
     ])
-    expect(capturedPayload.commentaryScope.totalSecurityFindings).toBe(2)
-    expect(capturedPayload.commentaryScope.omittedSecurityFindings).toBe(0)
-    expect(capturedPayload.commentaryScope.totalQualityFindings).toBe(2)
-    expect(capturedPayload.commentaryScope.omittedQualityFindings).toBe(0)
+    expect(payload.commentaryScope.totalSecurityFindings).toBe(2)
+    expect(payload.commentaryScope.omittedSecurityFindings).toBe(0)
+    expect(payload.commentaryScope.totalQualityFindings).toBe(2)
+    expect(payload.commentaryScope.omittedQualityFindings).toBe(0)
 
     // Result commentary contains roasts for all 4 findings
     expect(result.commentary.findings).toHaveLength(4)
@@ -699,7 +722,9 @@ describe('security-first repository commentary', () => {
       const body = JSON.parse(init!.body as string)
       const userContent = body.messages[1].content as string
       const jsonStart = userContent.indexOf('{')
-      capturedPayload = JSON.parse(userContent.slice(jsonStart))
+      const rawPayload: unknown = JSON.parse(userContent.slice(jsonStart))
+      const payload = requireCapturedPayload(rawPayload)
+      capturedPayload = payload
 
       return new Response(
         JSON.stringify({
@@ -735,11 +760,14 @@ describe('security-first repository commentary', () => {
 
     const result = await generateRepoRoast(scan, { language: 'en', intensity: 'Friendly Fire' })
 
-    expect(capturedPayload.commentaryScope.selectedIds).toEqual(['shared-id'])
-    expect(capturedPayload.commentaryScope.omittedCommentaryFindings).toBe(0)
-    expect(capturedPayload.commentaryScope.omittedQualityFindings).toBe(0)
-    expect(capturedPayload.commentaryScope.selectedQualityFindings).toBe(1)
-    expect(capturedPayload.commentaryScope.selectedSecurityFindings).toBe(1)
+    expect(capturedPayload).not.toBeNull()
+    const payload = requireCapturedPayload(capturedPayload)
+
+    expect(payload.commentaryScope.selectedIds).toEqual(['shared-id'])
+    expect(payload.commentaryScope.omittedCommentaryFindings).toBe(0)
+    expect(payload.commentaryScope.omittedQualityFindings).toBe(0)
+    expect(payload.commentaryScope.selectedQualityFindings).toBe(1)
+    expect(payload.commentaryScope.selectedSecurityFindings).toBe(1)
     expect(result.commentary.findings).toHaveLength(1)
     expect(result.commentary.findings[0].id).toBe('shared-id')
   })
@@ -783,9 +811,11 @@ describe('security-first repository commentary', () => {
       const body = JSON.parse(init!.body as string)
       const userContent = body.messages[1].content as string
       const jsonStart = userContent.indexOf('{')
-      capturedPayload = JSON.parse(userContent.slice(jsonStart))
+      const rawPayload: unknown = JSON.parse(userContent.slice(jsonStart))
+      const payload = requireCapturedPayload(rawPayload)
+      capturedPayload = payload
 
-      const selectedIds: string[] = capturedPayload.commentaryScope.selectedIds
+      const selectedIds: string[] = payload.commentaryScope.selectedIds
       const findings = selectedIds.map((id) => ({
         id,
         evidenceIds: [id],
@@ -821,7 +851,8 @@ describe('security-first repository commentary', () => {
     const result = await generateRepoRoast(scan, { language: 'en', intensity: 'No Mercy' })
 
     expect(capturedPayload).not.toBeNull()
-    const scope = capturedPayload!.commentaryScope
+    const payload = requireCapturedPayload(capturedPayload)
+    const scope = payload.commentaryScope
 
     // Global scanner total must be preserved as 150, NOT collapsed to 100
     expect(scope.totalSecurityFindings).toBe(150)
