@@ -3,7 +3,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'VibeRoast — Your AI built it. Our AI judges it.',
+  title: 'SourceSanity — Your AI built it. Our AI judges it.',
   description: 'An opinionated AI design audit for questionable websites. Get roasted, get a roadmap, get redeemed.',
   icons: {
     icon: [
