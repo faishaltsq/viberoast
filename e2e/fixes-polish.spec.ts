@@ -159,7 +159,7 @@ test('downloads only current selected evidence and reports download-start failur
   const downloadEvent = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download Markdown', exact: true }).click()
   const download = await downloadEvent
-  expect(download.suggestedFilename()).toBe('viberoast-windsurf.md')
+  expect(download.suggestedFilename()).toBe('sourcesanity-windsurf.md')
   const stream = await download.createReadStream()
   expect(stream).not.toBeNull()
   const chunks: Buffer[] = []

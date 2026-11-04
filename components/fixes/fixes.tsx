@@ -74,7 +74,7 @@ export function Fixes({ report, language, selectedIds, select, results }: { repo
     if (!prompt) return
     clearFeedback()
     try {
-      downloadText(prompt, `viberoast-${preset.toLowerCase().replaceAll(' ', '-')}.md`)
+      downloadText(prompt, `sourcesanity-${preset.toLowerCase().replaceAll(' ', '-')}.md`)
       setFeedback({ prompt, kind: 'other', message: t('Markdown download started. Check your browser’s downloads.', 'Unduhan Markdown dimulai. Periksa daftar unduhan browsermu.') })
     } catch {
       setFeedback({ prompt, kind: 'other', message: t('Markdown download could not start. Copy the prompt or select its text manually instead.', 'Unduhan Markdown tidak dapat dimulai. Salin prompt atau pilih teksnya secara manual.') })

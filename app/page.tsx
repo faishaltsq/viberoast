@@ -184,7 +184,7 @@ export default function Page() {
       if (!isRepositoryReport(next)) throw new Error(t('The server returned an invalid repository report.', 'Server mengembalikan laporan repositori yang tidak valid.'))
       setScannedTarget(trimmed)
       setReport(next)
-      setSelectedIds(next.repoScan.findings.map(f => f.id))
+      setSelectedIds(Array.from(new Set([...(next.repoScan.securityFindings ?? []).map(f => f.id), ...next.repoScan.findings.map(f => f.id)])).slice(0, 60))
       navigate('results')
     } catch (failure) {
       setErrorReaction('confused')
@@ -196,7 +196,7 @@ export default function Page() {
     }
   }
 
-  const logo = <a href="#top" className="logo" onClick={event => { event.preventDefault(); navigate('home') }} aria-label={t('VibeRoast home', 'Beranda VibeRoast')}><span className="logo-flame" aria-hidden="true">✦</span> Vibe<span>Roast</span></a>
+  const logo = <a href="#top" className="logo" onClick={event => { event.preventDefault(); navigate('home') }} aria-label={t('SourceSanity home', 'Beranda SourceSanity')}><span className="logo-flame" aria-hidden="true">✦</span> Source<span>Sanity</span></a>
 
   return <main id="top" className="site-shell">
     <a className="skip-link" href="#main-content">{t('Skip to content', 'Langsung ke konten')}</a>
@@ -530,7 +530,7 @@ export default function Page() {
           <div className="terminal-preview">
             <div className="terminal-bar">
               <CircleDot />
-              <span>viberoast / {t('illustration.log', 'contoh.log')}</span>
+              <span>sourcesanity / {t('illustration.log', 'contoh.log')}</span>
               <span>•••</span>
             </div>
             <div className="terminal-lines">
@@ -706,7 +706,7 @@ export default function Page() {
     <footer className="footer container">
       {logo}
       <span>{t('Built with questionable taste & good intentions.', 'Dibuat dengan selera meragukan & niat baik.')}</span>
-      <span>© {new Date().getFullYear()} VibeRoast</span>
+      <span>© {new Date().getFullYear()} SourceSanity</span>
     </footer>
 
     {dialog && (

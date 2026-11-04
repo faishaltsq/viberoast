@@ -1,6 +1,7 @@
-import type { Language, RepositoryReport, RoastReport, WebsiteReport } from '@/lib/types/report'
-import { isRepositoryReport, isWebsiteReport } from '@/lib/types/report'
+import type { Language, RepositoryReport, RoastReport } from '@/lib/types/report'
+import { isRepositoryReport } from '@/lib/types/report'
 import { calculateScore } from '@/lib/roast/score'
+import { redactSecrets } from '@/lib/security/redact'
 
 function image(source: string, label: string): Promise<HTMLImageElement> {
   const { promise, resolve, reject } = Promise.withResolvers<HTMLImageElement>()
@@ -11,7 +12,8 @@ function image(source: string, label: string): Promise<HTMLImageElement> {
   return promise
 }
 
-function lines(ctx: CanvasRenderingContext2D, text: string, x: number, y: number, width: number, lineHeight: number, maxLines: number) {
+function lines(ctx: CanvasRenderingContext2D, rawText: string, x: number, y: number, width: number, lineHeight: number, maxLines: number) {
+  const text = redactSecrets(rawText)
   let remaining = Array.from(text.slice(0, 4096).replace(/\s+/g, ' ').trim())
   const fit = (suffix = '') => {
     let low = 0, high = remaining.length
@@ -61,7 +63,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
     ctx.fillStyle = '#f5f1e8'; ctx.fillRect(0, 0, width, canvas.height)
     ctx.strokeStyle = '#20201e'; ctx.lineWidth = 4; ctx.strokeRect(18, 18, width - 36, canvas.height - 36)
     ctx.fillStyle = '#20201e'; ctx.font = '900 42px Arial'
-    ctx.fillText('VibeRoast', 48, 44)
+    ctx.fillText('SourceSanity', 48, 44)
 
     if (isRepositoryReport(report)) {
       const scan = report.repoScan
@@ -97,14 +99,28 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
       ctx.fillText(t('FINDINGS FROM THIS REPO', 'TEMUAN DARI REPOSITORI INI'), 48, square ? 766 : 352)
 
       const priority = { high: 3, medium: 2, low: 1 }
-      const findings = [...new Map(scan.findings.map(f => [f.id, f])).values()]
-        .sort((a, b) => priority[b.severity] - priority[a.severity]).slice(0, 3)
+      const secFindings = scan.securityFindings ?? []
+      const qualFindings = scan.findings ?? []
+      const sortedSec = [...secFindings].sort((a, b) => priority[b.severity] - priority[a.severity])
+      const sortedQual = [...qualFindings.filter((q) => !secFindings.some((s) => s.id === q.id))].sort(
+        (a, b) => priority[b.severity] - priority[a.severity]
+      )
+      const findings = [...sortedSec, ...sortedQual].slice(0, 3)
+
       ctx.font = square ? '21px Arial' : '20px Arial'
       findings.forEach((finding, index) => {
         const commentary = report.commentary?.findings.find(entry => entry.evidenceIds.includes(finding.id))
-        lines(ctx, `${index + 1}. ${commentary?.roast.trim() || finding.title}`, 48, (square ? 798 : 380) + index * (square ? 64 : 60), contentWidth, square ? 26 : 25, 2)
+        const isSecurity = Boolean(finding.security) || finding.category === 'Security'
+        const label = isSecurity ? finding.title : (commentary?.roast.trim() || finding.title)
+        lines(ctx, `${index + 1}. ${label}`, 48, (square ? 798 : 380) + index * (square ? 64 : 60), contentWidth, square ? 26 : 25, 2)
       })
-      if (!findings.length) lines(ctx, t('No critical findings discovered in inspected source files.', 'Tidak ada temuan kritis dalam berkas yang dianalisis.'), 48, square ? 798 : 380, contentWidth, 26, 3)
+      if (!findings.length) {
+        const isScopeKnown = Boolean(scan.securityCoverage && scan.securityCoverage.filesInspected > 0)
+        const emptyMessage = isScopeKnown
+          ? t('No security findings detected in the inspected scope.', 'Tidak ada temuan keamanan yang terdeteksi dalam cakupan yang diperiksa.')
+          : t('No critical findings discovered in inspected source files. Security scope unassessed.', 'Tidak ada temuan kritis dalam berkas yang dianalisis. Cakupan keamanan tidak dinilai.')
+        lines(ctx, emptyMessage, 48, square ? 798 : 380, contentWidth, 26, 3)
+      }
 
       const footerY = canvas.height - 60
       ctx.strokeStyle = '#20201e'; ctx.lineWidth = 1
@@ -112,7 +128,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
       ctx.font = '15px monospace'
       lines(ctx, t('Pinned commit review · Private report', 'Ulasan commit permanen · Laporan privat'), 48, footerY, width - 450, 20, 1)
       ctx.textAlign = 'right'
-      ctx.fillText('viberoast-app.vercel.app', width - 48, footerY)
+      ctx.fillText('SourceSanity', width - 48, footerY)
 
     } else {
       const scan = report.scan
@@ -169,7 +185,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
       ctx.font = '15px monospace'
       lines(ctx, scan.status === 'partially_completed' ? t('Partial scan · limits apply', 'Scan parsial · ada batasan') : t('Scan scope and limits apply', 'Cakupan dan batasan berlaku'), 48, footerY, width - 450, 20, 1)
       ctx.textAlign = 'right'
-      ctx.fillText('viberoast-app.vercel.app', width - 48, footerY)
+      ctx.fillText('SourceSanity', width - 48, footerY)
     }
 
     const { promise, resolve, reject } = Promise.withResolvers<Blob>()
@@ -179,7 +195,7 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
     const url = URL.createObjectURL(blob)
     try {
       const anchor = document.createElement('a')
-      anchor.href = url; anchor.download = `viberoast-${format}.png`; anchor.click()
+      anchor.href = url; anchor.download = redactSecrets(`sourcesanity-${format}.png`); anchor.click()
     } finally { window.setTimeout(() => URL.revokeObjectURL(url), 1000) }
   } finally {
     canvas.width = 0; canvas.height = 0
@@ -188,9 +204,11 @@ export async function downloadShareCard(report: RoastReport, format: 'square' | 
 
 export function shareText(report: RoastReport, language: Language) {
   if (isRepositoryReport(report)) {
-    return `VibeRoast: ${report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan repositori, tanpa roasting AI.' : 'Repository report, no AI roast.')}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`
+    const headline = report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan repositori, tanpa roasting AI.' : 'Repository report, no AI roast.')
+    return redactSecrets(`SourceSanity: ${headline}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`)
   }
-  return `VibeRoast: ${report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan pemindai, tanpa roasting AI.' : 'Scanner-only report, no AI roast.')}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`
+  const headline = report.commentary?.verdict.headline ?? (language === 'id' ? 'Laporan pemindai, tanpa roasting AI.' : 'Scanner-only report, no AI roast.')
+  return redactSecrets(`SourceSanity: ${headline}\n${language === 'id' ? 'Komentar komedi, bukan sertifikasi audit.' : 'Comedy commentary, not an audit certification.'}`)
 }
 
 export async function downloadRepoShareCard(report: RepositoryReport, format: 'square' | 'landscape', language: Language) {
