@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test'
 import { makeReport } from '../tests/fixtures/report'
+import { setAuthenticatedCookie } from './support/auth-fixtures'
+import { DETERMINISTIC_TOKENS, MOCK_GITHUB_USER } from './support/mock-auth'
 
 async function installReportFixture(page: Page, options: { partial?: boolean; scannerOnly?: boolean; empty?: boolean; screenshot?: boolean } = {}) {
   const report = makeReport()
@@ -86,7 +88,11 @@ test('keeps partial and scanner-only results honest and supports empty findings'
   await expect(page.getByRole('button', { name: 'Copy prompt', exact: true })).toBeDisabled()
 })
 
-test('navigation, language, manifesto, hall filtering and responsive layout work', async ({ page }) => {
+test('navigation, language, manifesto, hall filtering and responsive layout work', async ({ page, context }) => {
+  await setAuthenticatedCookie(context, {
+    user: MOCK_GITHUB_USER,
+    token: DETERMINISTIC_TOKENS.GITHUB,
+  })
   await page.goto('/')
   await page.getByRole('button', { name: 'Read his manifesto' }).click()
   await expect(page.getByRole('dialog')).toContainText('Evidence before opinions')
@@ -98,12 +104,17 @@ test('navigation, language, manifesto, hall filtering and responsive layout work
   await page.getByRole('button', { name: 'Ganti ke English' }).click()
   if (await page.getByRole('button', { name: 'Toggle menu' }).isVisible()) await page.getByRole('button', { name: 'Toggle menu' }).click()
   await page.getByRole('navigation').getByRole('link', { name: 'Hall of Shame', exact: true }).click()
-  await page.getByRole('textbox', { name: 'Search projects' }).fill('nonexistent-fixture')
-  await expect(page.getByText(/No examples match/)).toBeVisible()
-  await page.getByRole('textbox', { name: 'Search projects' }).fill('')
-  await page.getByLabel('Sort examples').selectOption('name')
-  await page.getByRole('button', { name: 'Hall of Vibes', exact: true }).click()
-  await expect(page.getByRole('heading', { name: /TaskToast/ })).toBeVisible()
+  await page.waitForURL(/\/hall/)
+
+  const search = page.getByRole('textbox', { name: /Search case files|Cari berkas kasus/i })
+  await search.fill('nonexistent-fixture')
+  await expect(page.getByRole('heading', { name: /No case files match/i })).toBeVisible()
+  await search.fill('')
+  await page.getByRole('combobox', { name: /Sort case files/i }).selectOption('title-asc')
+  const vibesBtn = page.getByRole('button', { name: /Hall of Vibes/i })
+  await vibesBtn.click()
+  await expect(vibesBtn).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.locator('#hall-case-grid article')).toHaveCount(2)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
 })
 

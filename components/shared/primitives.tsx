@@ -7,15 +7,74 @@ export function SectionLabel({ children }: { children: ReactNode }) {
   return <div className="section-label">{children}</div>
 }
 
-export function Dialog({ title, children, close, language }: { title: string; children: ReactNode; close: () => void; language: Language }) {
+export function Dialog({
+  title,
+  children,
+  close,
+  language,
+  titleId = 'dialog-title',
+  ariaDescribedby,
+  className,
+  headerPrefix,
+  headerActions,
+}: {
+  title: string
+  children: ReactNode
+  close: () => void
+  language: Language
+  titleId?: string
+  ariaDescribedby?: string
+  className?: string
+  headerPrefix?: ReactNode
+  headerActions?: ReactNode
+}) {
   const ref = useRef<HTMLDialogElement>(null)
+
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null
     const dialog = ref.current
     dialog?.showModal()
-    return () => { dialog?.close(); previous?.focus({ preventScroll: true }) }
+
+    const originalOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+
+    return () => {
+      document.body.style.overflow = originalOverflow
+      dialog?.close()
+      previous?.focus({ preventScroll: true })
+    }
   }, [])
-  return <dialog ref={ref} className="brand-dialog" aria-labelledby="dialog-title" onCancel={event => { event.preventDefault(); close() }}><div className="dialog-heading"><h2 id="dialog-title">{title}</h2><button className="outline-btn" onClick={close} aria-label={language === 'id' ? 'Tutup dialog' : 'Close dialog'}>×</button></div>{children}</dialog>
+
+  return (
+    <dialog
+      ref={ref}
+      className={className ? `brand-dialog ${className}` : 'brand-dialog'}
+      aria-labelledby={titleId}
+      aria-describedby={ariaDescribedby}
+      onCancel={event => {
+        event.preventDefault()
+        close()
+      }}
+    >
+      <div className="dialog-heading">
+        <div style={{ flex: 1, minWidth: 0 }}>
+          {headerPrefix}
+          <h2 id={titleId}>{title}</h2>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {headerActions}
+          <button
+            className="outline-btn"
+            onClick={close}
+            aria-label={language === 'id' ? 'Tutup dialog' : 'Close dialog'}
+          >
+            ×
+          </button>
+        </div>
+      </div>
+      {children}
+    </dialog>
+  )
 }
 
 export function downloadText(text: string, name: string) {

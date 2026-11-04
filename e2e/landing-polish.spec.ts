@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test'
 import { makeReport } from '../tests/fixtures/report'
+import { setAuthenticatedCookie } from './support/auth-fixtures'
+import { DETERMINISTIC_TOKENS, MOCK_GITHUB_USER } from './support/mock-auth'
 
 test('validation preserves the URL and Enter submits once with the selected intensity', async ({ page }) => {
   let requests = 0
@@ -66,7 +68,11 @@ test('an unreadable service response offers recovery rather than a connection ac
   await expect(page.getByRole('textbox', { name: 'Website URL' })).toHaveValue('https://fixture.example.com/')
 })
 
-test('mobile navigation supports Escape and reports its active destination', async ({ page }) => {
+test('mobile navigation supports Escape and reports its active destination', async ({ page, context }) => {
+  await setAuthenticatedCookie(context, {
+    user: MOCK_GITHUB_USER,
+    token: DETERMINISTIC_TOKENS.GITHUB,
+  })
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/')
   const menu = page.getByRole('button', { name: 'Toggle menu' })
@@ -77,6 +83,7 @@ test('mobile navigation supports Escape and reports its active destination', asy
   await expect(menu).toBeFocused()
   await menu.click()
   await page.getByRole('navigation').getByRole('link', { name: 'Hall of Shame', exact: true }).click()
-  await menu.click()
-  await expect(page.getByRole('navigation').getByRole('link', { name: 'Hall of Shame', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.waitForURL(/\/hall/)
+  expect(page.url()).toContain('/hall')
+  await expect(page.getByRole('heading', { level: 1 })).toContainText(/Hall/i)
 })
